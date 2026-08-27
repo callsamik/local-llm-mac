@@ -385,6 +385,12 @@ pull_models() {
   log "pulling ${PRIMARY_TAG} (~${PRIMARY_SIZE_GB}GB). This can take a while."
   run ollama pull "${PRIMARY_TAG}"
   create_alias "${PRIMARY_ALIAS}" "${PRIMARY_TAG}"
+  # Claude Desktop rejects ids that are not claude-sonnet/opus/haiku.
+  # Same local weights, names the app will accept.
+  for desktop_name in claude-sonnet-4-5 claude-sonnet-4-6; do
+    log "aliasing ${PRIMARY_ALIAS} as ${desktop_name} for Claude Desktop"
+    run ollama cp "${PRIMARY_ALIAS}" "${desktop_name}"
+  done
 }
 
 smoke_test() {
@@ -482,6 +488,7 @@ That is Claude Code + local Qwen 3.8. No Anthropic or Cursor usage.
 Plain "claude" still bills Anthropic — do not use it until 1 Sep.
 
 Model:         ${PRIMARY_ALIAS}  (${PRIMARY_TAG}, ~${PRIMARY_SIZE_GB}GB)
+Desktop alias: claude-sonnet-4-5 (same local Qwen; Desktop requires that name)
 API:           http://127.0.0.1:11434 (localhost only)
 Keep-alive:    model stays loaded
 Context:       32768  Thinking: medium (raise per hard bug)
