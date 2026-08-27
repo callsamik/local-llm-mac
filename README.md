@@ -50,6 +50,7 @@ Prompt text `/no_think` alone is **not** reliable on this model — use `--think
 
 - Do **not** run plain `claude` while balance is exhausted — that still bills Anthropic.
 - Do **not** pick Auto / Claude / GPT in Cursor Agent — that still bills Cursor. Cursor also often cannot reach `localhost` Ollama because Agent traffic goes through Cursor’s servers.
+- **No Cursor balance:** use Cursor as an **editor only**. Agent/BYOK/Override OpenAI Base URL to Ollama will not unlock Agent at “0 limit left.” Run the agent in cmux with `claude-local` instead. Details: [`docs/LOCAL-LLM-RESEARCH.md`](./docs/LOCAL-LLM-RESEARCH.md) §7.
 - Cursor Tab can still use Cursor’s cloud; turn it off if you need to stretch anything left.
 
 Need a new terminal after install so `claude-local` is on PATH (`~/.local/bin`).

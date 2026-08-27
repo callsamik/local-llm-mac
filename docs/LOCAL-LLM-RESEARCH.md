@@ -16,6 +16,7 @@ This document is the research record: decisions, dead ends, architecture, measur
 | Can we run a useful coding agent fully local on this Mac? | **Yes.** Ollama + **Qwen 3.8 27B** (~18 GB) fits in 36 GB with a ~49k context. |
 | Which model answers? | Local **`qwen-code`** (Qwen 3.8 27B on Ollama). Not Claude cloud, not Cursor. |
 | Best $0 coding path | Terminal / **cmux** → **`claude-local`** (Claude Code CLI → Ollama). Not Cursor Agent. Not signed-in Claude Desktop. |
+| Can Cursor use local Qwen with **no Cursor balance**? | **Effectively no.** Agent/Chat/BYOK/custom models are gated by Cursor’s plan/usage. A tunnel to Ollama does not unlock “0 limit left.” Use Cursor as an editor only; run the agent in cmux. |
 | Does Claude Desktop work with local Qwen? | **Only in third-party gateway mode**, with a rewrite proxy (or a future Ollama Apps mapping that actually accepts the Claude model ids). |
 | Does a local model bypass Anthropic’s monthly spend limit in Desktop? | **No, if you stay signed into Claude.ai.** Spend limit is an account gate. Local inference does not clear it. |
 | Why did “hello” take ~1 minute in Desktop? | Model was warm on GPU. Latency was **Desktop’s large system/tools stack + thinking**, not Ollama. |
@@ -212,17 +213,65 @@ Signing out / switching to gateway mode moves Desktop into **Cowork-on-3P**:
 
 ## 7. Cursor-specific findings
 
-| Path | Bills? | Notes |
+| Path | Works with $0 Cursor balance? | Notes |
 |---|---|---|
-| Cursor Agent Auto / Claude / GPT | Yes (Cursor) | Not a $0 path. |
-| Cursor Agent → localhost Ollama | Unreliable | Agent often runs via Cursor’s servers; cannot reach laptop Ollama. |
-| Cursor Tab | Can still use cloud | Turn off if stretching remaining quota. |
-| Terminal outside Cursor | — | Preferred while balance is exhausted. |
-| **cmux** + `claude-local` | No (local) | Native macOS terminal for parallel agents. Run `claude-local` in each workspace — not plain `claude`. |
+| Cursor Agent Auto / Claude / GPT | No | Bills Cursor; blocked when usage is exhausted. |
+| Cursor Agent → `localhost` Ollama | No | Agent traffic goes through Cursor’s servers; they cannot reach your laptop’s `127.0.0.1`. |
+| Cursor + Override OpenAI Base URL → Ollama via HTTPS tunnel | Only if Cursor plan/usage still allows BYOK/custom models | Still not a pure air-gap (prompts may traverse Cursor). See §7.2–7.3. |
+| Cursor Tab | Often still cloud | Can still consume Cursor quota; turn off while stretching. |
+| Cursor as **editor only** | Yes | Open files, diffs, git — leave Agent/Auto alone. |
+| **cmux** + `claude-local` | Yes | Reliable $0 coding agent on local Qwen. |
+
+### 7.1 Why Cursor is a poor $0 agent host
+
+Cursor’s Agent / Chat / Edit pipeline builds prompts on **Cursor’s backend**. Even with “your own” OpenAI-compatible endpoint:
+
+1. The backend must call that endpoint — so **`http://127.0.0.1:11434` is unreachable** from their servers.
+2. Product policy: **BYOK / Override Base URL / manual custom models require an active paid plan** (Pro/Teams). On Free, or when usage shows **0 limit left**, custom/local routes are typically **blocked server-side** (forum-confirmed behavior; not fixed by downgrading the app).
+3. Therefore: **no Cursor balance ⇒ do not expect Agent to run on local Qwen.** Use cmux + `claude-local` instead.
+
+### 7.2 If you still want Cursor → Ollama (when balance/plan allows)
+
+Only attempt this when Cursor will actually accept a custom model (active Pro/Teams and usage not blocking BYOK).
+
+1. Keep Ollama up (`ollama ps` → `qwen-code`, GPU, `CONTEXT 49152`).
+2. Expose Ollama with a **public HTTPS** tunnel (Cursor cannot use raw localhost):
+
+```bash
+ngrok http 11434
+# or Cloudflare Tunnel / similar
+```
+
+3. Cursor **Settings → Models**:
+   - Enable **Override OpenAI Base URL**
+   - Base URL: `https://YOUR-TUNNEL/v1` (must end with `/v1`)
+   - API key: `ollama` (any non-empty placeholder)
+   - Add model name exactly: **`qwen-code`** (no `:` — Cursor strips characters like `:` from tags such as `qwen3.8:27b`)
+4. Select `qwen-code` in Chat/Agent (not Auto / Claude).
+5. When you want built-in Claude/GPT again: **turn Override Off**.
+
+**Caveats:**
+
+- Prompt/context may still pass through Cursor’s servers — **not a pure local/air-gapped path** for office code.
+- A tunnel publishes a route to your laptop API; use auth, short-lived URLs, and tear it down when done.
+- Qwen thinking defaults on — Agent turns can still be slow unless thinking is disabled on the Ollama side (§8.3).
+- This does **not** replace `claude-local`; it only wires Cursor’s UI when the account allows it.
+
+### 7.3 When Cursor balance is exhausted (recommended workflow)
+
+| Tool | Role |
+|---|---|
+| **cmux + `claude-local`** | Coding agent → local `qwen-code` |
+| **Cursor** | Editor only (files, git, review) |
+| **Claude Desktop** | Optional gateway mode only; not signed-in Anthropic while capped |
+
+Do **not** spend time on tunnels or Override Base URL expecting them to bypass “You’ve hit your limit.” That limit is Cursor’s gate on Agent features.
+
+Whenever Cursor balance is back: use Cursor cloud for hard tasks; keep `claude-local` as the cheap daily default.
 
 ---
 
-## 7.1 cmux + Claude Code CLI
+## 7.4 cmux + Claude Code CLI
 
 [cmux](https://cmux.com) is a macOS terminal built for many AI coding agents in parallel. It does **not** replace Claude Code; it hosts it.
 
@@ -388,8 +437,9 @@ If `/v1/messages` hangs for minutes while `ollama ps` already shows GPU + Foreve
 ### 9.1 While balance is exhausted
 
 1. **Primary:** cmux or Terminal → `claude-local` inside the repo (prefer `--think=false` / fast path until quality needs thinking).  
-2. **Optional UI:** Claude Desktop **Continue with Gateway** → `http://127.0.0.1:11436` (accept that cloud threads are not available in this mode).  
-3. **Avoid:** plain `claude`, Cursor Agent cloud models, Desktop signed into Anthropic while capped.
+2. **Cursor:** editor only — do not expect Agent/BYOK/Ollama override to work with **0 Cursor limit**.  
+3. **Optional UI:** Claude Desktop **Continue with Gateway** → `http://127.0.0.1:11436` (accept that cloud threads are not available in this mode).  
+4. **Avoid:** plain `claude`, Cursor Agent cloud models, Desktop signed into Anthropic while capped.
 
 ### 9.2 Whenever balance is back
 
@@ -441,7 +491,8 @@ Installer also embeds the proxy for machines that only copy `install.sh`. Refres
 2. Can Desktop gateway mode ever attach to prior Claude.ai threads? (Today: no evidence; treat as separate stores.)  
 3. Ship a second alias `qwen-code-fast` with thinking off by default?  
 4. Can Claude Code be told to pass `think: false` / Anthropic `thinking.type=disabled` through to Ollama reliably?  
-5. Team policy: when is local Qwen “good enough” vs escalate to Claude/GPT?
+5. Will Cursor ever support true localhost models without a public tunnel and without a paid/usage gate?  
+6. Team policy: when is local Qwen “good enough” vs escalate to Claude/GPT?
 
 ---
 
@@ -449,10 +500,11 @@ Installer also embeds the proxy for machines that only copy `install.sh`. Refres
 
 1. **Local coding works** on M3 Pro 36 GB with **Qwen 3.8 27B** (`qwen-code`) + Ollama.  
 2. **`claude-local` in cmux/terminal is the reliable $0 agent.** Cursor Agent is not. Plain `claude` still bills Anthropic.  
-3. **Claude Desktop + local Qwen requires gateway mode + name rewriting** (our 11436 proxy, unless Ollama’s Apps path is fixed).  
-4. **Signed-in Desktop still enforces Anthropic spend limits** even when the UI shows Qwen.  
-5. Use **`num_ctx` 49152** or Claude Code hits `500 no user query found in messages`.  
-6. **Thinking defaults on** and can turn a simple reply into ~11 minutes; **`/no_think` is not enough** — use `--think=false` / `"think": false`.  
-7. When the UI only says `API error · Retrying`, probe Ollama directly; do not debug cmux first.
+3. **No Cursor balance ⇒ keep Cursor as an editor; run the agent in cmux.** Override Base URL / tunnels do not unlock Agent when usage is exhausted; BYOK/custom models need an active Cursor paid plan.  
+4. **Claude Desktop + local Qwen requires gateway mode + name rewriting** (our 11436 proxy, unless Ollama’s Apps path is fixed).  
+5. **Signed-in Desktop still enforces Anthropic spend limits** even when the UI shows Qwen.  
+6. Use **`num_ctx` 49152** or Claude Code hits `500 no user query found in messages`.  
+7. **Thinking defaults on** and can turn a simple reply into ~11 minutes; **`/no_think` is not enough** — use `--think=false` / `"think": false`.  
+8. When the UI only says `API error · Retrying`, probe Ollama directly; do not debug cmux first.
 
 For install and daily commands, see [`README.md`](./README.md).
