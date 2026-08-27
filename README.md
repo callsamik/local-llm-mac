@@ -6,6 +6,8 @@ One model. Code stays on the laptop. Default reasoning effort is **medium** so i
 
 **Team write-up:** full research, dead ends, Desktop/spend-limit findings, and performance notes are in [`docs/LOCAL-LLM-RESEARCH.md`](./docs/LOCAL-LLM-RESEARCH.md).
 
+**Session handoff** (current decisions, what’s built vs deferred, next steps): [`docs/HANDOFF.md`](./docs/HANDOFF.md).
+
 ## Install on the Mac
 
 ```bash
