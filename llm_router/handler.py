@@ -41,6 +41,8 @@ def make_handler_class(deps: HandlerDeps) -> type[BaseHTTPRequestHandler]:
                         "cascade": Cfg.cascade,
                         "disable_opus": Cfg.disable_opus,
                         "disable_fable": Cfg.disable_fable,
+                        "enable_opus": Cfg.enable_opus,
+                        "enable_fable": Cfg.enable_fable,
                         "local_upstream": Cfg.local_upstream,
                         "cloud_upstream": Cfg.cloud_upstream,
                         "local_model": Cfg.local_model,

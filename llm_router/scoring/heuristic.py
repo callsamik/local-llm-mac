@@ -133,7 +133,7 @@ class HeuristicScorer:
         if opt_fable:
             reasons.extend(opt_fable)
 
-        # Auto ladder: local / haiku / sonnet only.
+        # Base auto ladder: local / haiku / sonnet. Opus/fable applied later via gates.
         if hard_hit:
             lane = "sonnet"
             score = max(score, 2)

@@ -80,10 +80,12 @@ Protocols live in each package’s `protocols.py`. Wire-up is only in `compositi
 | **local** | `qwen-fast` | rename, explain, list files |
 | **haiku** | Haiku | implement / fix / add tests · effort `low` · thinking off |
 | **sonnet** | Sonnet | harder bugs → org-wide hard · effort `medium`/`high`/`xhigh` · thinking on |
-| **opus** | Opus | **opt-in only** (“use opus”, `x-route: opus`) |
-| **fable** | Fable | **opt-in only** (“use fable”, `x-route: fable`) |
+| **opus** | Opus | Enabled via `ROUTER_ENABLE_OPUS=1` — security/incident/race/deep architecture |
+| **fable** | Fable | Enabled via `ROUTER_ENABLE_FABLE=1` — org-wide / longest-horizon / mission-critical |
 
-Auto scoring never picks opus/fable; hard prompts stay on **sonnet** with higher effort. Hard-disable even opt-in with `ROUTER_DISABLE_OPUS=1` / `ROUTER_DISABLE_FABLE=1`.
+**Default:** opus/fable flags are **off**. Hard prompts stay on **sonnet** with higher effort.  
+**When a flag is on**, dedicated phrase/score categories can auto-forward to that model (and `use opus` / `use fable` / `x-route` also work for that tier).  
+`ROUTER_DISABLE_OPUS=1` / `ROUTER_DISABLE_FABLE=1` force the flag off.
 
 **Effort** (`low|medium|high|xhigh|max`; “extra” → `xhigh`) and **thinking** (`off` / adaptive `on`) are set on hosted requests via `output_config.effort` + `thinking`. Client values win when already present. Thinking is never left off at `xhigh`/`max`.
 

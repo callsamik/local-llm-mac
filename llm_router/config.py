@@ -40,8 +40,15 @@ class Cfg:
     llm_classify = os.environ.get("ROUTER_LLM_CLASSIFY", "auto").strip().lower()
     # Cascade on upstream failure (model missing / 429 / 5xx / connect)
     cascade = os.environ.get("ROUTER_CASCADE", "1") != "0"
-    # Hard-block opt-in tiers (even explicit request → sonnet)
-    disable_opus = _env_flag("ROUTER_DISABLE_OPUS", False)
-    disable_fable = _env_flag("ROUTER_DISABLE_FABLE", False)
+    # Costly frontier lanes: off by default. When on, auto-scoring may assign them.
+    enable_opus = _env_flag("ROUTER_ENABLE_OPUS", False) and not _env_flag(
+        "ROUTER_DISABLE_OPUS", False
+    )
+    enable_fable = _env_flag("ROUTER_ENABLE_FABLE", False) and not _env_flag(
+        "ROUTER_DISABLE_FABLE", False
+    )
+    # Back-compat aliases used by older checks / docs
+    disable_opus = not enable_opus
+    disable_fable = not enable_fable
     # Local LLM scorer timeout (seconds) when heuristics need help
     llm_classify_timeout = float(os.environ.get("ROUTER_LLM_CLASSIFY_TIMEOUT", "12"))

@@ -33,9 +33,9 @@ def model_for_lane(lane: str) -> str:
 
 
 def lane_allowed(lane: str) -> bool:
-    if lane == "opus" and Cfg.disable_opus:
+    if lane == "opus" and not Cfg.enable_opus:
         return False
-    if lane == "fable" and Cfg.disable_fable:
+    if lane == "fable" and not Cfg.enable_fable:
         return False
     return True
 

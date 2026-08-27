@@ -261,21 +261,33 @@ EASY_PATTERNS = [
     r"\bfix\s+(the\s+)?(import|typo|indent|spacing|lint)\b",
 ]
 
-# Difficulty cues that raise score (stay on auto ladder → sonnet + higher effort).
+# Dedicated opus category (score floor 4). Used only when ROUTER_ENABLE_OPUS=1.
 OPUS_HARD_PHRASES = [
     "multi service migration", "multiservice migration", "entire codebase",
     "whole codebase", "cross cutting", "cross-cutting", "distributed systems",
     "threat model", "security audit", "production outage", "root cause analysis",
     "deep dive into", "formal verification", "consensus",
+    "sev-1", "sev 1", "p0 incident", "p0 outage", "incident response",
+    "race condition across", "flaky race", "deadlock across",
+    "security-sensitive", "security sensitive", "penetration test",
+    "threat modeling", "compliance audit", "crypto review",
+    "compare trade-offs", "compare tradeoffs", "architecture review",
+    "system redesign", "distributed transaction", "saga orchestration",
 ]
 
+# Dedicated fable category (score floor 6). Used only when ROUTER_ENABLE_FABLE=1.
 FABLE_HARD_PHRASES = [
     "longest horizon", "maximum reasoning", "mythos",
     "hardest problem", "mission critical redesign", "company wide migration",
     "company-wide migration", "org wide architecture", "org-wide architecture",
+    "platform-wide rewrite", "platform wide rewrite", "multi-year migration",
+    "multi year migration", "enterprise-wide", "enterprise wide",
+    "org-wide redesign", "org wide redesign", "greenfield platform",
+    "replace the monolith", "strangle the monolith", "company-wide rollout",
+    "company wide rollout", "cross-org migration", "cross org migration",
 ]
 
-# Explicit opt-in only — never inferred from difficulty alone.
+# Explicit ask still maps to the tier, but only if that tier is enabled.
 OPT_IN_OPUS = [
     "use opus", "with opus", "ask opus", "via opus", "on opus",
     "force opus", "route opus", "switch to opus",

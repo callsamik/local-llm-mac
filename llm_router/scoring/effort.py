@@ -11,14 +11,59 @@ from llm_router.models import EFFORT_LEVELS
 def apply_opt_in_lane(
     wanted: str, current: str, reasons: list[str]
 ) -> tuple[str, list[str]]:
-    if wanted == "opus" and Cfg.disable_opus:
+    if wanted == "opus" and not Cfg.enable_opus:
         reasons.append("opus-disabled→sonnet")
         return "sonnet", reasons
-    if wanted == "fable" and Cfg.disable_fable:
+    if wanted == "fable" and not Cfg.enable_fable:
         reasons.append("fable-disabled→sonnet")
         return "sonnet", reasons
     reasons.append(f"opt-in→{wanted}")
     return wanted, reasons
+
+
+def apply_frontier_gates(
+    lane: str,
+    score: int,
+    *,
+    opus_hard: bool,
+    fable_hard: bool,
+    reasons: list[str],
+) -> tuple[str, list[str]]:
+    """Map severity into opus/fable only when those config flags are enabled.
+
+    Desired tiers from score/phrases:
+      fable — fable-hard phrases or score >= 6
+      opus  — opus-hard phrases or score >= 4
+      else  — keep incoming lane (local/haiku/sonnet)
+    """
+    desired = lane
+    if fable_hard or score >= 6:
+        desired = "fable"
+    elif opus_hard or score >= 4:
+        desired = "opus"
+
+    if desired == "fable":
+        if Cfg.enable_fable:
+            if lane != "fable":
+                reasons.append("frontier:fable")
+            return "fable", reasons
+        reasons.append("fable-off→cap")
+        # Fall through to opus if that tier is enabled and severity still qualifies.
+        if Cfg.enable_opus and (opus_hard or score >= 4):
+            reasons.append("frontier:opus")
+            return "opus", reasons
+        reasons.append("frontier:sonnet")
+        return "sonnet", reasons
+
+    if desired == "opus":
+        if Cfg.enable_opus:
+            if lane != "opus":
+                reasons.append("frontier:opus")
+            return "opus", reasons
+        reasons.append("opus-off→sonnet")
+        return "sonnet", reasons
+
+    return lane, reasons
 
 
 def effort_ask_flags(norm: str, lower: str) -> tuple[bool, bool]:

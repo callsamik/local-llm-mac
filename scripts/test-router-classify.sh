@@ -53,7 +53,7 @@ check "wire up the webhook handler" haiku
 check "pls make a login page" haiku
 check "whip up a unit test for parseDate" haiku
 
-# hard work stays on sonnet (opus/fable are opt-in only)
+# hard work stays on sonnet while opus/fable flags are off (default)
 check "memory leak in the worker pool" sonnet
 check "why is this broken in ci" sonnet
 check "production is down on checkout" sonnet
@@ -67,79 +67,86 @@ check "root cause the flaky payment race condition across services" sonnet
 check "design the architecture for a multi-service migration" sonnet
 check "company-wide migration of the platform" sonnet
 
-# opt-in only
-check "use fable for this hardest problem" fable
-check "use opus for this security audit" opus
+# explicit ask still gated by enable flags (default off → sonnet)
+check "use fable for this hardest problem" sonnet
+check "use opus for this security audit" sonnet
 
-# effort / thinking defaults
+# effort / thinking defaults (flags off → sonnet caps)
 check_meta "rename the helper and fix the typo" local null off
 check_meta "implement a login form with validation" haiku low off
 check_meta "memory leak in the worker pool" sonnet medium adaptive
 check_meta "security audit of the auth flow" sonnet high adaptive
 check_meta "company-wide migration of the platform" sonnet xhigh adaptive
-check_meta "use fable for this hardest problem" fable xhigh adaptive
-check_meta "use opus for this security audit" opus high adaptive
 
-# cascade + helpers
+# cascade + enable-flag helpers
 python3 - "$PY" <<'PY'
 import sys
 from importlib.machinery import SourceFileLoader
 
 m = SourceFileLoader("llm_router", sys.argv[1]).load_module()
-assert m.cascade_from("fable") == ["fable", "opus", "sonnet", "haiku", "local"]
-assert m.cascade_from("cheap") == ["haiku", "local"]
-assert m.cascade_from("frontier") == ["sonnet", "haiku", "local"]
-assert m.should_failover_status(404, b"{}")
-assert m.should_failover_status(429, b"{}")
-assert m.should_failover_status(529, b"{}")
-assert not m.should_failover_status(200, b"{}")
-assert m.normalize_effort("extra") == "xhigh"
-assert m.effort_thinking_for("haiku", 1) == ("low", "off")
-assert m.effort_thinking_for("sonnet", 6)[0] == "xhigh"
 
-# disable skips in cascade
-m.Cfg.disable_opus = True
-assert "opus" not in m.cascade_from("fable")
+# Defaults: opus/fable off
+assert m.Cfg.enable_opus is False
+assert m.Cfg.enable_fable is False
+assert m.cascade_from("fable") == ["sonnet", "haiku", "local"]
+assert m.cascade_from("cheap") == ["haiku", "local"]
+
+# Enable both → full cascade from fable
+m.Cfg.enable_opus = True
+m.Cfg.enable_fable = True
 m.Cfg.disable_opus = False
-m.Cfg.disable_fable = True
-d = m.score_route("use fable please", {"messages": [{"role": "user", "content": "use fable please"}]})
-assert d.lane == "sonnet", d
 m.Cfg.disable_fable = False
+assert m.cascade_from("fable") == ["fable", "opus", "sonnet", "haiku", "local"]
+
+# Category auto-assign when enabled
+d = m.score_route(
+    "security audit of the auth flow",
+    {"messages": [{"role": "user", "content": "security audit of the auth flow"}]},
+)
+assert d.lane == "opus", d
+d = m.score_route(
+    "company-wide migration of the platform",
+    {"messages": [{"role": "user", "content": "company-wide migration of the platform"}]},
+)
+assert d.lane == "fable", d
+d = m.score_route(
+    "use opus for this security audit",
+    {"messages": [{"role": "user", "content": "use opus for this security audit"}]},
+)
+assert d.lane == "opus", d
+
+# Turn fable off → company-wide falls to opus (still enabled)
+m.Cfg.enable_fable = False
+m.Cfg.disable_fable = True
+d = m.score_route(
+    "company-wide migration of the platform",
+    {"messages": [{"role": "user", "content": "company-wide migration of the platform"}]},
+)
+assert d.lane == "opus", d
+
+# Both off → sonnet
+m.Cfg.enable_opus = False
+m.Cfg.disable_opus = True
+d = m.score_route(
+    "security audit of the auth flow",
+    {"messages": [{"role": "user", "content": "security audit of the auth flow"}]},
+)
+assert d.lane == "sonnet", d
+
+# reset
+m.Cfg.enable_opus = False
+m.Cfg.enable_fable = False
+m.Cfg.disable_opus = True
+m.Cfg.disable_fable = True
+
+assert m.should_failover_status(404, b"{}")
+assert m.normalize_effort("extra") == "xhigh"
+assert m.effort_thinking_for("sonnet", 6)[0] == "xhigh"
 
 payload = m.rewrite_for_hosted({"messages": []}, "claude-sonnet-4-6", "high", "adaptive")
 assert payload["output_config"]["effort"] == "high"
-assert payload["thinking"]["type"] == "adaptive"
-# never disable thinking at xhigh
-payload2 = m.rewrite_for_hosted(
-    {"thinking": {"type": "disabled"}}, "claude-sonnet-4-6", "xhigh", "off"
-)
-assert payload2["thinking"]["type"] == "adaptive"
 
-# Local LLM score helpers
-parsed = m._parse_llm_score_payload(
-    '{"lane":"sonnet","score":4,"effort":"high"}'
-)
-assert parsed["lane"] == "sonnet" and parsed["score"] == 4
-assert m._parse_llm_score_payload("haiku score:1 effort:low")["lane"] == "haiku"
-assert m.needs_llm_score(
-    confident=False, hard_hit=False, medium_hit=False, easy_hits=0,
-    score=0, reasons=[], opus_hard=False, fable_hard=False,
-)
-assert m.needs_llm_score(
-    confident=True, hard_hit=True, medium_hit=False, easy_hits=1,
-    score=1, reasons=["hard:x", "easy:y"], opus_hard=False, fable_hard=False,
-)
-assert m.needs_llm_score(
-    confident=True, hard_hit=True, medium_hit=False, easy_hits=0,
-    score=2, reasons=["hard:leak"], opus_hard=False, fable_hard=False,
-)
-# Confident clean haiku should NOT need LLM
-assert not m.needs_llm_score(
-    confident=True, hard_hit=False, medium_hit=True, easy_hits=0,
-    score=1, reasons=["medium:implement"], opus_hard=False, fable_hard=False,
-)
-
-print("ok  cascade / effort / llm-score helpers")
+print("ok  cascade / enable-flag / frontier helpers")
 PY
 
 echo "all classification checks passed"

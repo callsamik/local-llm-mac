@@ -4,9 +4,11 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from llm_router.config import Cfg
 from llm_router.models import AUTO_LANES, RouteDecision
 from llm_router.protocols import LlmScorerBackend, RouteScorer
 from llm_router.scoring.effort import (
+    apply_frontier_gates,
     apply_opt_in_lane,
     effort_ask_flags,
     effort_thinking_for,
@@ -38,6 +40,8 @@ class CompositeScorer:
         opt_fable = meta["opt_fable"]
         norm = meta["norm"]
         lower = meta["lower"]
+        opus_hard = meta["opus_hard"]
+        fable_hard = meta["fable_hard"]
 
         want_llm = (not opt_opus and not opt_fable) and needs_llm_score(
             confident=meta["confident"],
@@ -46,8 +50,8 @@ class CompositeScorer:
             easy_hits=meta["easy_hits"],
             score=score,
             reasons=reasons,
-            opus_hard=meta["opus_hard"],
-            fable_hard=meta["fable_hard"],
+            opus_hard=opus_hard,
+            fable_hard=fable_hard,
         )
         if want_llm and not os.environ.get("ROUTER_CLASSIFY_OFFLINE"):
             reasons.append("llm-score:needed")
@@ -66,14 +70,26 @@ class CompositeScorer:
                 if llm.get("effort") is not None:
                     llm_effort = normalize_effort(str(llm.get("effort")))
 
-                if llm_lane in AUTO_LANES:
+                allowed_llm = set(AUTO_LANES)
+                if Cfg.enable_opus:
+                    allowed_llm.add("opus")
+                if Cfg.enable_fable:
+                    allowed_llm.add("fable")
+
+                if llm_lane in allowed_llm:
                     reasons.append(f"llm-score:lane={llm_lane}")
                     lane = llm_lane
                     if llm_score is not None:
                         score = max(-2, min(6, llm_score))
                         reasons.append(f"llm-score:score={score}")
                     else:
-                        score = {"local": 0, "haiku": 1, "sonnet": 2}[llm_lane]
+                        score = {
+                            "local": 0,
+                            "haiku": 1,
+                            "sonnet": 2,
+                            "opus": 4,
+                            "fable": 6,
+                        }[llm_lane]
                 elif llm_lane in {"opus", "fable"}:
                     reasons.append(f"llm-score:clamped:{llm_lane}→sonnet")
                     lane = "sonnet"
@@ -93,10 +109,20 @@ class CompositeScorer:
             else:
                 reasons.append("llm-score:fallback-heuristic")
 
+        # Explicit ask phrases (still gated by enable flags).
         if opt_fable:
             lane, reasons = apply_opt_in_lane("fable", lane, reasons)
         elif opt_opus:
             lane, reasons = apply_opt_in_lane("opus", lane, reasons)
+        else:
+            # Category scores/phrases → opus/fable only when flags are on.
+            lane, reasons = apply_frontier_gates(
+                lane,
+                score,
+                opus_hard=opus_hard,
+                fable_hard=fable_hard,
+                reasons=reasons,
+            )
 
         asked_max, asked_xhigh = effort_ask_flags(norm, lower)
         effort, thinking_mode = effort_thinking_for(lane, score, asked_max, asked_xhigh)
@@ -131,8 +157,9 @@ def _default_composite_scorer() -> CompositeScorer:
 
 
 def score_route(user_text: str, data: dict[str, Any]) -> RouteDecision:
-    """Score into auto lanes (local/haiku/sonnet) + effort/thinking.
+    """Score into lanes + effort/thinking.
 
-    Opus/fable only when explicit opt-in phrases are present (and not disabled).
+    Opus/fable are assigned from dedicated score/phrase categories only when
+    ROUTER_ENABLE_OPUS / ROUTER_ENABLE_FABLE are on (default off).
     """
     return _default_composite_scorer().score(user_text, data)

@@ -110,6 +110,26 @@ class OllamaLlmScorer:
     def score_route(self, user_text: str) -> dict[str, Any] | None:
         if Cfg.llm_classify in {"0", "never", "off", "false", "no"}:
             return None
+        lanes = ["local", "haiku", "sonnet"]
+        rules = [
+            "- lane local: lookup/rename/typo/explain (score <= 0, effort null)",
+            "- lane haiku: normal implement/fix/test/refactor (score 1, effort low)",
+            "- lane sonnet: harder multi-file bugs / CI flakes (score 2-3, effort medium/high)",
+        ]
+        if Cfg.enable_opus:
+            lanes.append("opus")
+            rules.append(
+                "- lane opus: security/incident/race/deep architecture (score 4-5, effort high)"
+            )
+        if Cfg.enable_fable:
+            lanes.append("fable")
+            rules.append(
+                "- lane fable: org-wide / longest-horizon / mission-critical redesign "
+                "(score 6, effort xhigh/max)"
+            )
+        if not Cfg.enable_opus and not Cfg.enable_fable:
+            rules.append("- Never choose opus or fable.")
+        lane_opts = "|".join(lanes)
         payload = {
             "model": Cfg.local_model,
             "stream": False,
@@ -120,14 +140,11 @@ class OllamaLlmScorer:
                     "role": "system",
                     "content": (
                         "You score coding tasks for a router. Reply with ONLY compact JSON:\n"
-                        '{"lane":"local|haiku|sonnet","score":<int>,"effort":"low|medium|high|xhigh|max"|null}\n'
+                        f'{{"lane":"{lane_opts}","score":<int>,'
+                        '"effort":"low|medium|high|xhigh|max"|null}\n'
                         "Rules:\n"
-                        "- lane local: lookup/rename/typo/explain (score <= 0, effort null)\n"
-                        "- lane haiku: normal implement/fix/test/refactor (score 1, effort low)\n"
-                        "- lane sonnet: harder bugs/architecture/security/incidents "
-                        "(score 2 medium, 3-4 high, 5-6 xhigh)\n"
-                        "- Never choose opus or fable.\n"
-                        "- score is an integer from -2 to 6 reflecting difficulty.\n"
+                        + "\n".join(rules)
+                        + "\n- score is an integer from -2 to 6 reflecting difficulty.\n"
                         "- No markdown, no prose."
                     ),
                 },
