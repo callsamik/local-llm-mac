@@ -1,7 +1,7 @@
 # Heuristic Router: local / cheap / frontier — Design
 
 **Date:** 2026-08-27  
-**Status:** Primary design — pending review (no further implementation until approved)  
+**Status:** Approved defaults locked (Haiku + Sonnet); pending final review before implementation plan  
 **Supersedes for near-term work:** [`2026-08-27-feature-pipeline-design.md`](./2026-08-27-feature-pipeline-design.md) (deferred)
 
 **Out of scope:** OmniRoute, multiprovider-llm, Cursor-pool models (Fable/Sol/etc.), stage orchestrator Plan→Build→Clean→Audit (deferred).
@@ -13,8 +13,10 @@ Extend the existing `llm-router` so each Claude Code turn is scored **offline** 
 | Lane | When | Backend | Default model |
 |------|------|---------|---------------|
 | **local** | Easy / medium; machine can handle it | Ollama `127.0.0.1:11434` | `qwen-fast` (`qwen3:14b`) |
-| **cheap** | Needs hosted quality, not deep reasoning | Anthropic API | Haiku (`claude-haiku-4-5` or env override) |
-| **frontier** | Hard / reasoning-intensive | Anthropic API | Sonnet (`claude-sonnet-4-6` or env override) |
+| **cheap** | Needs hosted quality, not deep reasoning | Anthropic API | **Haiku** (`claude-haiku-4-5` or env override) |
+| **frontier** | Hard / reasoning-intensive | Anthropic API | **Sonnet** (`claude-sonnet-4-6` or env override) |
+
+**Hosted pair (locked):** **A — Haiku + Sonnet** (not Sonnet + Opus). Opus is out of scope for this spike; operators may still override `ROUTER_FRONTIER_MODEL` later, but the approved default frontier tier is Sonnet.
 
 Local is a **happy-path** lane (not failover-only). This validates cost/latency savings on a 36GB Mac while keeping office code off third-party gateways.
 
@@ -119,8 +121,8 @@ First scored user turn in a conversation fingerprints the session; later tool ro
 |-----|---------|------|
 | `ROUTER_LOCAL_MODEL` | `qwen-fast` | local lane |
 | `ROUTER_CHEAP_MODEL` | `claude-haiku-4-5` | cheap lane (override if account id differs) |
-| `ROUTER_FRONTIER_MODEL` | `claude-sonnet-4-6` | frontier lane |
-| `ROUTER_FRONTIER_MODEL` alt | optional `claude-opus-4-6` | if operator wants Opus as frontier |
+| `ROUTER_FRONTIER_MODEL` | `claude-sonnet-4-6` | frontier lane (**Sonnet**, per choice A) |
+| ~~Opus as frontier~~ | — | **Not** the approved default for this spike |
 | `OLLAMA_UPSTREAM` | `http://127.0.0.1:11434` | |
 | `ANTHROPIC_UPSTREAM` | `https://api.anthropic.com` | |
 | `ANTHROPIC_API_KEY` / `ROUTER_ANTHROPIC_API_KEY` | — | required for cheap/frontier |
