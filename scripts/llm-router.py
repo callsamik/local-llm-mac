@@ -46,54 +46,266 @@ class Cfg:
 _SESSION_ROUTE: dict[str, str] = {}
 
 HARD_PATTERNS = [
+    # Architecture / system design
     r"\barchitect(ure|ing)?\b",
-    r"\brefactors?\b.*\b(entire|whole|across|system)\b",
-    r"\bmigrat(e|ion)\b",
-    r"\brace\s*condition\b",
-    r"\bdeadlock\b",
-    r"\bflaky\b",
-    r"\bproduction\s+(outage|incident|sev)\b",
-    r"\bsecurity\s+audit\b",
+    r"\bsystem\s+design\b",
+    r"\bhigh[- ]level\s+design\b",
+    r"\bhld\b",
     r"\bdesign\s+doc\b",
+    r"\badr\b",
+    r"\btechnical\s+design\b",
+    r"\bdomain\s+model\b",
+    r"\bbounded\s+context\b",
+    r"\bevent[- ]driven\b",
+    r"\bmicroservice(s)?\b",
     r"\bmulti[- ]service\b",
     r"\bcross[- ]cutting\b",
-    r"\bdeep\s+dive\b",
+    r"\bdistributed\s+system\b",
+    r"\bcap\s+theorem\b",
+    r"\bconsistency\s+model\b",
+    r"\bsaga\s+pattern\b",
+    r"\bcqrs\b",
+    r"\bevent\s+sourcing\b",
+    # Large refactors / migrations
+    r"\brefactors?\b.*\b(entire|whole|across|system|codebase|monolith)\b",
+    r"\b(entire|whole)\s+(codebase|module|service)\b.*\brefactor",
+    r"\bmigrat(e|ion)\b",
+    r"\bbackfill\b",
+    r"\bschema\s+migration\b",
+    r"\bzero[- ]downtime\b",
+    r"\brolling\s+(deploy|upgrade)\b",
+    r"\bstrangler\b",
+    r"\blegacy\s+rewrite\b",
+    # Concurrency / reliability
+    r"\brace\s*condition\b",
+    r"\bdeadlock\b",
+    r"\blivelock\b",
+    r"\bheisenbug\b",
+    r"\bflaky\b",
+    r"\bintermittent\s+(fail|failure|bug|test)\b",
+    r"\bnon[- ]deterministic\b",
+    r"\bthread[- ]safe(ty)?\b",
+    r"\bconcurrency\s+bug\b",
+    r"\bmemory\s+leak\b",
+    r"\bgoroutine\s+leak\b",
+    r"\bresource\s+leak\b",
+    # Incidents / production
+    r"\bproduction\s+(outage|incident|sev|down|p0|p1)\b",
+    r"\bsev[- ]?[0-2]\b",
+    r"\bp[01]\b",
+    r"\bpostmortem\b",
     r"\broot\s+cause\b",
+    r"\brca\b",
+    r"\bincident\s+response\b",
+    r"\bon[- ]call\b",
+    r"\bpager(duty)?\b",
+    # Security
+    r"\bsecurity\s+audit\b",
+    r"\bthreat\s+model\b",
+    r"\bpen(etration)?\s+test\b",
+    r"\bvulnerabilit(y|ies)\b",
+    r"\bcve[- ]?\d",
+    r"\bauth(entication|orization)?\s+(bypass|flaw|hole)\b",
+    r"\binjection\s+attack\b",
+    r"\bxss\b",
+    r"\bcsrf\b",
+    r"\bssrf\b",
+    r"\brce\b",
+    r"\bprivilege\s+escalat",
+    r"\bsecrets?\s+leak\b",
+    r"\bcompromised\s+(key|token|credential)\b",
+    # Performance / deep analysis
+    r"\bdeep\s+dive\b",
     r"\bperformance\s+profil",
+    r"\bhot\s+path\b",
+    r"\blatency\s+(regress|spike|p99|p95)\b",
+    r"\bthroughput\b",
+    r"\bflame\s*graph\b",
+    r"\bo(ut)?\s*of\s*memory\b",
+    r"\boom\b",
+    r"\bcpu\s+bound\b",
+    r"\bgc\s+pause\b",
+    # Hard reasoning asks
     r"\breasoning_effort\b.*\b(high|xhigh)\b",
     r"\bthink\s+hard\b",
+    r"\bthink\s+step[- ]by[- ]step\b",
     r"\bcomplex\s+bug\b",
+    r"\bsubtle\s+bug\b",
+    r"\bhard\s+(problem|bug|issue)\b",
+    r"\bnon[- ]trivial\b",
+    r"\binvestigate\s+(why|how|the)\b",
+    r"\bwhy\s+does\s+this\s+(fail|break|flake)\b",
+    r"\bcompare\s+trade[- ]?offs?\b",
+    r"\btrade[- ]?off\s+analysis\b",
+    r"\bprove\s+(correctness|safety)\b",
+    r"\bformal\s+verif",
+    r"\bconsensus\s+algorithm\b",
+    r"\bpaxos\b",
+    r"\braft\b",
 ]
 
-MEDIUM_PATTERNS = [
+MEDIUM_VERBS = [
     r"\bimplement\b",
-    r"\badd\s+(a\s+)?(feature|test|endpoint|handler|component)\b",
-    r"\bwrite\s+(a\s+)?(test|tests)\b",
-    r"\badd\s+a\s+unit\s+test\b",
-    r"\bfix\s+(the\s+)?bug\b",
-    r"\bfix\b",
+    r"\bscaffold\b",
+    r"\bwire\s+up\b",
+    r"\badd\s+(?:an?\s+)?(?:[\w.-]+\s+){0,4}(feature|test|tests|endpoint|handler|component|route|api|hook|middleware|guard|dto|schema|migration|button|page|screen|form|modal|dialog)\b",
+    r"\badd\s+(?:an?\s+)?(?:[\w.-]+\s+){0,4}unit\s+test\b",
+    r"\bwrite\s+(?:an?\s+)?(?:[\w.-]+\s+){0,3}(test|tests|spec|specs|function|method|class|module|script)\b",
+    r"\bgenerate\s+(?:an?\s+)?(?:[\w.-]+\s+){0,3}(test|boilerplate|stub|mock)\b",
+    r"\bbuild\s+(?:an?\s+)?(?:[\w.-]+\s+){0,3}(feature|component|endpoint|page|api|service|module)\b",
+    r"\bcreate\s+(?:an?\s+)?(?:[\w.-]+\s+){0,3}(feature|component|endpoint|page|api|service|module|test|tests|class|function|pytest|jest|vitest)\b",
+    r"\bfix\s+(the\s+)?(bug|issue|error|failure|failing\s+test|npe|null\s*pointer|type\s*error|crash)\b",
+    r"\bpatch\s+(the\s+)?(bug|issue|error|handler|endpoint)\b",
+    r"\baddress\s+(the\s+)?(bug|issue|todo|failing)\b",
+    r"\bupdate\s+(the\s+)?(code|logic|handler|endpoint|component|schema|deps|dependencies)\b",
+    r"\bchange\s+(the\s+)?(behavior|logic|api|schema|implementation)\b",
+    r"\bmodify\s+(the\s+)?(code|handler|component|function|method)\b",
+    r"\bedit\s+(the\s+)?(file|component|function|handler)\b",
+    r"\breplace\s+(the\s+)?(implementation|handler|component)\b",
+    r"\bconvert\s+(to|into)\b",
+    r"\bport\s+(to|from)\b",
     r"\bunit\s+test\b",
+    r"\bintegration\s+test\b",
+    r"\be2e\b",
+    r"\bend[- ]to[- ]end\b",
+    r"\bsnapshot\s+test\b",
     r"\brefactor\b",
+    r"\bextract\b",
+    r"\binline\b",
+    r"\bclean\s+up\b",
+    r"\boptimize\b",
+    r"\bspeed\s+up\b",
+    r"\benhance\b",
+    r"\bintegrate\b",
+    r"\bhook\s+into\b",
+    r"\bset\s+up\b",
+    r"\bsetup\b",
+    r"\bconfig(ure)?\b",
+    r"\bdeploy\b",
+    r"\brollback\b",
+    r"\bvalidate\b",
+    r"\bsanitize\b",
+    r"\bserialize\b",
+    r"\bdeserialize\b",
+]
+
+# Stack/tech cues only count when a medium verb also matched.
+MEDIUM_STACK = [
+    r"\bcoverage\b",
+    r"\bjest\b",
+    r"\bpytest\b",
+    r"\bvitest\b",
+    r"\bplaywright\b",
+    r"\bcypress\b",
+    r"\bdry\b",
+    r"\bapi\s+client\b",
+    r"\bcrud\b",
+    r"\bendpoint\b",
+    r"\bcontroller\b",
+    r"\bservice\s+layer\b",
+    r"\brepository\b",
+    r"\bprisma\b",
+    r"\btypeorm\b",
+    r"\bsqlalchemy\b",
+    r"\bdjango\b",
+    r"\bflask\b",
+    r"\bfastapi\b",
+    r"\bexpress\b",
+    r"\bnext\.?js\b",
+    r"\bsvelte\b",
+    r"\btypescript\b",
+    r"\beslint\b",
+    r"\bprettier\b",
+    r"\bgithub\s+actions?\b",
+    r"\bdocker(file)?\b",
+    r"\bkubernetes\b",
+    r"\bk8s\b",
+    r"\bhelm\b",
+    r"\bterraform\b",
+    r"\bgraphql\b",
+    r"\brest\s+api\b",
+    r"\bwebsocket\b",
+    r"\boauth\b",
+    r"\bjwt\b",
+    r"\brbac\b",
+    r"\bi18n\b",
+    r"\blocalization\b",
+    r"\ba11y\b",
+    r"\baccessib(le|ility)\b",
+    r"\bresponsiv(e|eness)\b",
+    r"\btailwind\b",
+    r"\bstyling\b",
+    r"\bfrontend\b",
+    r"\bbackend\b",
+    r"\bfull[- ]?stack\b",
 ]
 
 EASY_PATTERNS = [
+    # Lookups / navigation
     r"\brename\b",
     r"\btypo\b",
+    r"\bspelling\b",
     r"\bexplain\b",
-    r"\bwhat\s+(is|does|are)\b",
-    r"\bwhere\s+(is|are)\b",
-    r"\blist\s+(the\s+)?files?\b",
+    r"\bwhat\s+(is|does|are|was|were)\b",
+    r"\bwhere\s+(is|are|was|were)\b",
+    r"\bwhich\s+file\b",
+    r"\bwho\s+(owns|wrote|calls)\b",
+    r"\bhow\s+do\s+i\s+run\b",
+    r"\bshow\s+me\b",
+    r"\bfind\s+(the\s+)?(file|function|class|symbol|definition)\b",
+    r"\bgo\s+to\b",
+    r"\bopen\s+(the\s+)?file\b",
+    r"\blist\s+(the\s+)?(files?|dirs?|directories|endpoints|routes|scripts)\b",
+    r"\bls\b",
+    r"\btree\b",
+    r"\bpwd\b",
+    r"\bprint\s+(the\s+)?(path|env|version)\b",
+    # Light docs / formatting
     r"\bsummarize\b",
+    r"\btldr\b",
+    r"\beli5\b",
     r"\bformat\b",
+    r"\bindent\b",
+    r"\bwhitespace\b",
     r"\bcomment\b",
     r"\bdocstring\b",
+    r"\bjsdoc\b",
+    r"\bjavadoc\b",
+    r"\breadme\b",
+    r"\bchangelog\b",
+    r"\btranslate\b",
+    # Trivial / greeting / tiny edits
     r"\bsimple\b",
+    r"\btrivial\b",
     r"\bquick\b",
+    r"\bminor\b",
+    r"\btiny\b",
+    r"\bsmall\s+(change|edit|tweak)\b",
     r"\bping\b",
     r"\bhello\b",
+    r"\bhi\b",
+    r"\bthanks\b",
+    r"\bthank\s+you\b",
     r"\bboilerplate\b",
-    r"\badd\s+a\s+(log|print|comment)\b",
+    r"\bstub\b",
+    r"\bnoop\b",
+    r"\badd\s+a\s+(log|print|comment|todo|note)\b",
+    r"\bremove\s+a\s+(log|print|comment|todo|note)\b",
+    r"\bdelete\s+(the\s+)?(comment|log|print)\b",
+    r"\bcapitalize\b",
+    r"\blowercase\b",
+    r"\buppercase\b",
+    r"\btrim\b",
+    r"\bsort\s+(the\s+)?(imports?|keys?)\b",
+    r"\balphabetize\b",
+    r"\bwrap\s+in\s+try\b",
+    r"\badd\s+type\s+hint\b",
+    r"\badd\s+types?\b",
+    r"\bexport\s+(the\s+)?(type|interface|const)\b",
+    r"\bimport\s+(path|statement)\b",
+    r"\bfix\s+(the\s+)?(import|typo|indent|spacing|lint)\b",
 ]
+
 
 
 def last_user_text(messages: list[Any]) -> str:
@@ -135,7 +347,11 @@ def session_key(data: dict[str, Any]) -> str:
 
 
 def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
-    """Return (lane, reason, score). <=0 local, 1 cheap, >=2 frontier."""
+    """Return (lane, reason, score). <=0 local, 1 cheap, >=2 frontier.
+
+    Hard matches always win (frontier). Medium wins over easy when no hard hit.
+    Easy deductions are capped so they cannot erase a medium signal alone.
+    """
     score = 0
     reasons: list[str] = []
     lower = user_text.lower()
@@ -143,21 +359,31 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
     if not user_text:
         return "local", "empty-user-sticky-candidate", 0
 
+    hard_hit = False
     for pat in HARD_PATTERNS:
         if re.search(pat, lower, re.I):
+            hard_hit = True
             score += 2
             reasons.append(f"hard:{pat}")
+
     medium_hit = False
-    for pat in MEDIUM_PATTERNS:
+    for pat in MEDIUM_VERBS:
         if re.search(pat, lower, re.I):
             medium_hit = True
             reasons.append(f"medium:{pat}")
     if medium_hit:
         score += 1
+        for pat in MEDIUM_STACK:
+            if re.search(pat, lower, re.I):
+                reasons.append(f"stack:{pat}")
+
+    easy_hits = 0
     for pat in EASY_PATTERNS:
         if re.search(pat, lower, re.I):
-            score -= 1
+            easy_hits += 1
             reasons.append(f"easy:{pat}")
+    # Cap easy pull-down so "simple implement X" still lands cheap.
+    score -= min(easy_hits, 2)
 
     if len(user_text) > 6000:
         score += 2
@@ -184,12 +410,20 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
         score += 2
         reasons.append("effort-high")
 
-    if score <= 0:
+    # Decisive category signals (foolproof overrides on raw arithmetic).
+    if hard_hit:
+        lane = "frontier"
+        score = max(score, 2)
+    elif medium_hit:
+        lane = "cheap"
+        score = max(score, 1)
+    elif score <= 0:
         lane = "local"
     elif score == 1:
         lane = "cheap"
     else:
         lane = "frontier"
+
     reason = ",".join(reasons) if reasons else "default-local"
     return lane, reason, score
 
