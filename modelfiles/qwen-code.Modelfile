@@ -1,8 +1,17 @@
-# Wrapper so Cursor and CLI can pin a stable name while the
-# underlying quant (Q4 coding vs MLX nvfp4) can change.
+# Qwen 3.8 27B wrapper for long agentic coding on a 36GB M3 Pro.
+# Thinking stays on. Default effort is medium via the system prompt so
+# runs do not spiral at xhigh; raise effort per request for hard bugs.
 FROM {{FROM_MODEL}}
 PARAMETER num_ctx 32768
-PARAMETER temperature 0.7
-PARAMETER top_p 0.8
+PARAMETER num_predict 8192
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
 PARAMETER top_k 20
 PARAMETER repeat_penalty 1.05
+
+SYSTEM """You are a local coding agent on this machine. Think before you act, then finish the job.
+
+Reasoning effort is set to medium. Think carefully, validate key assumptions, then move to a concrete plan and execute. Do not loop on alternatives or rewrite the same approach. If blocked, say what you tried and what you need.
+
+For multi-step work: inspect the relevant files, make the smallest correct change, run or reason about tests, and continue until the task is done or you are blocked. Prefer applying a patch over dumping a whole file. Do not claim you ran a command you did not run.
+"""

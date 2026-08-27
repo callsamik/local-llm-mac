@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Ollama and Qwen 3.6 27B coding for a MacBook Pro M3 Pro (36GB).
+# Install Ollama and Qwen 3.8 27B for agentic coding on a MacBook Pro M3 Pro (36GB).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,13 +15,13 @@ SKIP_MODELS=0
 
 usage() {
   cat <<'EOF'
-Install Ollama and Qwen 3.6 27B coding (the local coding model for a 36GB M3 Pro).
+Install Ollama and Qwen 3.8 27B (agentic coding + reasoning on a 36GB M3 Pro).
 
 Usage:
   ./install.sh [options]
 
 Options:
-  --mlx              Pull the MLX nvfp4 coding build (~20GB) instead of Q4 (~18GB)
+  --mlx              Pull the MLX nvfp4 build (~18GB) instead of GGUF Q4
   --skip-models      Install Ollama and Mac settings only
   --smoke-test       After pull, generate one short reply (loads the 27B into RAM)
   --dry-run          Print what would happen
@@ -91,16 +91,16 @@ FREE_GB="$(free_gb)"
 log "hardware: ${OS} ${ARCH}, ${MEM_GB}GB RAM, ${FREE_GB}GB free on the home volume"
 
 if [[ "${MEM_GB}" -gt 0 && "${MEM_GB}" -lt 32 ]]; then
-  warn "${MEM_GB}GB is below the 32GB comfort line for Qwen 3.6 27B with a 32k context."
+  warn "${MEM_GB}GB is below the 32GB comfort line for Qwen 3.8 27B with a 32k agent context."
 fi
 
-PRIMARY_TAG="qwen3.6:27b-coding"
+PRIMARY_TAG="qwen3.8:27b"
 PRIMARY_ALIAS="qwen-code"
 PRIMARY_SIZE_GB=18
 
 if [[ "${USE_MLX_QUANT}" -eq 1 ]]; then
-  PRIMARY_TAG="qwen3.6:27b-coding-nvfp4"
-  PRIMARY_SIZE_GB=20
+  PRIMARY_TAG="qwen3.8:27b-nvfp4"
+  PRIMARY_SIZE_GB=18
 fi
 
 NEED_GB=$((PRIMARY_SIZE_GB + 4))
@@ -332,19 +332,23 @@ print_next_steps() {
 
 Done.
 
-Daily driver:  ollama run ${PRIMARY_ALIAS}
+Agent model:   ollama run ${PRIMARY_ALIAS}
+Upstream:      ${PRIMARY_TAG}
 API:           http://127.0.0.1:11434
 OpenAI path:   http://127.0.0.1:11434/v1
 Keep-alive:    model stays loaded (plugged-in setup)
-Context:       32768 tokens on ${PRIMARY_ALIAS}
+Context:       32768 tokens (headroom for the run, not the whole repo)
 Bind:          localhost only
+Thinking:      on, default effort medium (raise per request for hard bugs)
 
-Cursor: Settings → Models → OpenAI-compatible
+Cursor / agent harness: OpenAI-compatible
   Base URL  http://127.0.0.1:11434/v1
   Model     ${PRIMARY_ALIAS}
   API key   ollama  (any non-empty string)
 
-Point Cursor at that local endpoint for coding support. Code stays on this machine.
+Hard task: send reasoning_effort "high" (or "xhigh" if the client allows it).
+Quick lookup: reasoning_effort "low" or /no_think in the prompt.
+Launch a coding agent: ollama launch claude --model ${PRIMARY_ALIAS}
 EOF
 }
 
