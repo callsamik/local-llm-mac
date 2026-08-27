@@ -1,0 +1,13 @@
+# Lean local model for easy/medium coding tasks on 36GB Mac.
+# Qwen 3.8 only ships 27B on Ollama today; qwen3:14b (~9.3GB) leaves
+# headroom for KV cache + IDE + browser without the 27B pressure.
+FROM qwen3:14b
+PARAMETER num_ctx 24576
+PARAMETER num_predict 4096
+PARAMETER temperature 0.5
+PARAMETER top_p 0.9
+PARAMETER top_k 20
+PARAMETER repeat_penalty 1.05
+
+SYSTEM """You are a fast local coding assistant on this machine. Prefer short, correct answers. Do not over-think trivial tasks. For renames, lookups, small edits, and explanations: answer directly. If the task needs deep architecture or multi-file investigation you cannot finish well, say so clearly so a stronger model can take over.
+"""

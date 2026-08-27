@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Claude Code via llm-router: easy/medium → local 14B, hard → Anthropic.
+set -euo pipefail
+
+MODEL="${CLAUDE_ROUTED_MODEL:-claude-sonnet-4-6}"
+ROUTER_URL="${LLM_ROUTER_URL:-http://127.0.0.1:11437}"
+OLLAMA_URL="${OLLAMA_HOST:-http://127.0.0.1:11434}"
+if [[ "${OLLAMA_URL}" != http* ]]; then
+  OLLAMA_URL="http://${OLLAMA_URL}"
+fi
+
+if ! curl -sf "${ROUTER_URL}/health" >/dev/null 2>&1; then
+  printf 'error: llm-router is not up at %s\n' "${ROUTER_URL}" >&2
+  printf 'Start it:\n  llm-router\n' >&2
+  exit 1
+fi
+if ! curl -sf "${OLLAMA_URL}/api/tags" >/dev/null 2>&1; then
+  printf 'error: Ollama is not running at %s\n' "${OLLAMA_URL}" >&2
+  exit 1
+fi
+
+# Keep a real Anthropic key for hard routes if present; do not blank it.
+# Router uses ANTHROPIC_API_KEY from the environment for cloud hops.
+unset CLAUDE_CODE_USE_BEDROCK
+unset AWS_REGION AWS_DEFAULT_REGION
+export ANTHROPIC_BASE_URL="${ROUTER_URL}"
+export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-ollama}"
+# If user has a real key, keep it for cloud. Else placeholder for local-only.
+if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+  export ANTHROPIC_API_KEY="ollama"
+fi
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="${ANTHROPIC_DEFAULT_HAIKU_MODEL:-qwen-fast}"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="${ANTHROPIC_DEFAULT_SONNET_MODEL:-${MODEL}}"
+export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-${MODEL}}"
+
+if ! command -v claude >/dev/null 2>&1; then
+  printf 'error: Claude Code CLI not found.\n' >&2
+  exit 1
+fi
+exec claude --model "${MODEL}" "$@"

@@ -71,6 +71,29 @@ claude-local
 claude
 ```
 
+## Smart router (14B local + cloud for hard tasks)
+
+On a 36GB machine that also runs IDE/browser work, **Qwen3 14B** (`qwen-fast`) leaves more headroom than 27B once KV cache and context are counted. A small proxy on `:11437` sends easy/medium turns to that local model and harder / reasoning-heavy turns to hosted Claude when `ANTHROPIC_API_KEY` is set.
+
+```bash
+chmod +x scripts/setup-14b-router.sh
+./scripts/setup-14b-router.sh
+```
+
+Then:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...   # optional; without it, hard tasks stay local
+llm-router                             # if LaunchAgent is not already up
+claude-routed                          # in cmux / terminal on your repo
+```
+
+Heuristics (sticky per conversation): architecture, migrations, race conditions, security audits, “root cause”, long prompts, and enabled thinking → cloud; renames, typos, “what is…”, list files → local. Override with header `x-route: local|cloud` or `ROUTER_FORCE=local|cloud`.
+
+Unload the 27B when using this path so RAM stays free: `ollama stop qwen-code`.
+
+Classify without Ollama: `./scripts/test-router-classify.sh`
+
 ## Claude Desktop app
 
 The error `unknown Claude model "claude-sonnet-4-6"` on **port 11435** means Desktop is talking to Ollama’s Claude sidecar. That sidecar only catalogs real Claude slots. Aliasing Qwen as `claude-sonnet-4-6` on port 11434 does not change 11435.
