@@ -55,6 +55,19 @@ claude-local
 claude
 ```
 
+## Claude Desktop app
+
+Yes, after Ollama is running. The stock Claude Desktop app still talks to Anthropic (no/low balance until 1 Sep). Point it at local Ollama instead:
+
+1. Use a current Ollama (Claude Desktop support shipped 25 Aug 2026).
+2. Open Ollama → Claude → turn **Claude** on. Ollama writes the third-party gateway for you.
+3. In Claude Desktop, choose **`qwen-code`**.
+4. On 1 Sep, turn Claude **off** in Ollama to restore Anthropic.
+
+If the toggle is missing: Help → Troubleshooting → Enable Developer Mode → Developer → Configure Third-Party Inference → Gateway `http://127.0.0.1:11434`, API key `ollama`.
+
+Cloud connectors that need Anthropic’s backend (Gmail, Drive, and similar) will not work in this mode. `claude-local` in a terminal is the more reliable $0 agent until credits return.
+
 ## Use it as a chat model
 
 ```bash
