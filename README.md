@@ -27,7 +27,7 @@ Optional: `./install.sh --mlx` pulls `qwen3.8:27b-nvfp4` (still ~18GB, usually f
 
 Expect a long download.
 
-## Until 1 September (no Cursor / Claude balance)
+## While Cursor / Claude balance is exhausted
 
 Do the work in a **terminal**, not Cursor Agent.
 
@@ -38,13 +38,13 @@ claude-local
 
 That is Claude Code driving **local Qwen 3.8**. It does not use Cursor usage or Anthropic credits.
 
-- Do **not** run plain `claude` until the recharge — that still bills Anthropic.
+- Do **not** run plain `claude` while balance is exhausted — that still bills Anthropic.
 - Do **not** pick Auto / Claude / GPT in Cursor Agent — that still bills Cursor. Cursor also often cannot reach `localhost` Ollama because Agent traffic goes through Cursor’s servers.
 - Cursor Tab can still use Cursor’s cloud; turn it off if you need to stretch anything left.
 
 Need a new terminal after install so `claude-local` is on PATH (`~/.local/bin`).
 
-## From 1 September
+## Whenever balance is back
 
 Keep `claude-local` for everyday agent runs so the new balance lasts. Use Cursor cloud or plain `claude` only when the local agent is stuck.
 
@@ -54,7 +54,7 @@ Do **not** put `ANTHROPIC_BASE_URL=http://127.0.0.1:11434` in `~/.zshrc` — tha
 # local (free)
 claude-local
 
-# Anthropic, after 1 Sep
+# Anthropic, whenever balance is back
 claude
 ```
 
@@ -97,7 +97,7 @@ ollama run qwen-code "Reply with the single word pong."
 
 Wait until it prints `pong` (can take a minute). Then retry Desktop. Keep Ollama open so keep-alive holds the model.
 
-Cloud connectors that need Anthropic’s backend (Gmail, Drive, and similar) will not work in this mode. `claude-local` in a terminal is the more reliable $0 agent until credits return.
+Cloud connectors that need Anthropic’s backend (Gmail, Drive, and similar) will not work in this mode. `claude-local` in a terminal is the more reliable $0 agent while balance is exhausted.
 
 ## Use it as a chat model
 

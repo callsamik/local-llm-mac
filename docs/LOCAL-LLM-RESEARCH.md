@@ -3,7 +3,7 @@
 **Audience:** engineering team  
 **Hardware under test:** MacBook Pro, Apple Silicon M3 Pro, 36 GB unified memory (plugged in)  
 **Date of findings:** late August 2026  
-**Goal:** keep coding/agent work productive while Cursor and Claude balances were exhausted (until ~1 September), then keep a cheap local default afterward.
+**Goal:** keep coding/agent work productive while Cursor and Claude balances are exhausted, then keep a cheap local default whenever balance is back.
 
 This document is the research record: decisions, dead ends, architecture, measured behavior, and recommendations. Day-to-day install steps live in [`README.md`](./README.md).
 
@@ -25,10 +25,10 @@ This document is the research record: decisions, dead ends, architecture, measur
 
 ### 2.1 Constraints
 
-- Cursor / Claude balances exhausted until ~1 September.
+- Cursor / Claude balances exhausted (shared team situation at time of writing).
 - Office Mac; code should stay on the laptop (no cloud gateway that can see repo contents).
 - Prefer long agent runs (plan → edit → test → repeat) with controllable reasoning effort.
-- After recharge: keep local as the cheap default; escalate to cloud only when stuck.
+- Whenever balance is back: keep local as the cheap default; escalate to cloud only when stuck.
 
 ### 2.2 Non-goals
 
@@ -194,7 +194,7 @@ Signing out / switching to gateway mode moves Desktop into **Cowork-on-3P**:
 - Old cloud threads stay with the Anthropic account; they are not merged into gateway mode.
 - Repo files on disk are untouched.
 
-**Implication:** you cannot keep the Anthropic cloud conversation **and** dodge the spend limit. After recharge, sign back into normal Claude to recover cloud threads.
+**Implication:** you cannot keep the Anthropic cloud conversation **and** dodge the spend limit. Whenever balance is back, sign back into normal Claude to recover cloud threads.
 
 ### 6.4 Would a fixed Ollama Apps mapping allow “stay logged in”?
 
@@ -209,7 +209,7 @@ Signing out / switching to gateway mode moves Desktop into **Cowork-on-3P**:
 | Cursor Agent Auto / Claude / GPT | Yes (Cursor) | Not a $0 path. |
 | Cursor Agent → localhost Ollama | Unreliable | Agent often runs via Cursor’s servers; cannot reach laptop Ollama. |
 | Cursor Tab | Can still use cloud | Turn off if stretching remaining quota. |
-| Terminal outside Cursor | — | Preferred until recharge. |
+| Terminal outside Cursor | — | Preferred while balance is exhausted. |
 
 ---
 
@@ -248,13 +248,13 @@ Interpretation: model resident, Metal/GPU path, keep-alive working. Cold start w
 
 ## 9. Recommended operating modes
 
-### 9.1 Until credits reset (e.g. 1 September)
+### 9.1 While balance is exhausted
 
 1. **Primary:** `claude-local` inside the repo.  
 2. **Optional UI:** Claude Desktop **Continue with Gateway** → `http://127.0.0.1:11436` (accept that cloud threads are not available in this mode).  
 3. **Avoid:** plain `claude`, Cursor Agent cloud models, Desktop signed into Anthropic while capped.
 
-### 9.2 After credits reset
+### 9.2 Whenever balance is back
 
 1. Keep `claude-local` as the cheap daily default.  
 2. Use real `claude` / Cursor cloud when local is stuck.  

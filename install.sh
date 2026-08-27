@@ -655,7 +655,7 @@ Until Cursor / Claude credits reset: use the terminal, not Cursor Agent.
   claude-local
 
 That is Claude Code + local Qwen 3.8. No Anthropic or Cursor usage.
-Plain "claude" still bills Anthropic — do not use it until 1 Sep.
+Plain "claude" still bills Anthropic — do not use it while balance is exhausted.
 
 Claude Desktop (the app) is not port 11435. That sidecar returns:
   unknown Claude model "claude-sonnet-4-6"
@@ -675,8 +675,8 @@ Desktop proxy: http://127.0.0.1:${DESKTOP_PROXY_PORT}
 Keep-alive:    model stays loaded
 Context:       32768  Thinking: medium (raise per hard bug)
 
-From 1 Sep: keep claude-local for everyday work; use Cursor cloud or
-plain claude only when the local agent is stuck.
+Whenever balance is back: keep claude-local for everyday work; use Cursor
+cloud or plain claude only when the local agent is stuck.
 EOF
 }
 
