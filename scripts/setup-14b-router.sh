@@ -22,10 +22,13 @@ log "creating alias qwen-fast"
 ollama create qwen-fast -f "${ROOT}/modelfiles/qwen-code-14b.Modelfile"
 
 log "installing llm-router + claude-routed"
+rm -rf "${SHARE}/llm_router"
+cp -R "${ROOT}/llm_router" "${SHARE}/llm_router"
 cp "${ROOT}/scripts/llm-router.py" "${SHARE}/llm-router.py"
 cp "${ROOT}/scripts/claude-routed" "${BIN}/claude-routed"
 cat > "${BIN}/llm-router" <<EOF
 #!/usr/bin/env bash
+export PYTHONPATH="${SHARE}:\${PYTHONPATH:-}"
 exec python3 "${SHARE}/llm-router.py" "\$@"
 EOF
 chmod 755 "${BIN}/llm-router" "${BIN}/claude-routed"
