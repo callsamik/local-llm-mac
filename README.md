@@ -71,7 +71,23 @@ ollama cp qwen-code claude-sonnet-4-5
 ollama cp qwen-code claude-sonnet-4-6
 ```
 
-In the gateway form, set the model list to `claude-sonnet-4-5`. The weights are still Qwen 3.8 on this Mac; nothing is billed to Anthropic as long as the gateway URL is `http://127.0.0.1:11434`.
+**Do not use port 11435.** That is Ollama’s Claude sidecar; it only catalogs real Anthropic ids and returns `unknown Claude model "claude-sonnet-4-6"`. Turn **Ollama → Apps → Claude** **Off**, then run a rewrite proxy:
+
+```bash
+python3 scripts/claude-desktop-proxy.py
+```
+
+Leave that terminal open. In Desktop’s gateway form:
+
+- Gateway base URL: `http://127.0.0.1:11436`
+- API key: `ollama`
+- Auth: `x-api-key`
+- Model: `claude-sonnet-4-6`
+- Tier: `sonnet`
+
+The proxy rewrites `claude-sonnet-4-6` to local `qwen-code` on port 11434. Cmd+Q Desktop, reopen, Continue with Gateway.
+
+If the toggle is missing: Help → Troubleshooting → Enable Developer Mode → Developer → Configure Third-Party Inference.
 
 If the toggle is missing: Help → Troubleshooting → Enable Developer Mode → Developer → Configure Third-Party Inference → Gateway `http://127.0.0.1:11434`, API key `ollama`.
 
