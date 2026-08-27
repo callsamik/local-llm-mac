@@ -29,20 +29,32 @@ Expect a long download.
 
 ## While Cursor / Claude balance is exhausted
 
-Do the work in a **terminal**, not Cursor Agent.
+Do the work in a **terminal** or **cmux**, not Cursor Agent.
 
 ```bash
 cd /path/to/your/repo
 claude-local
 ```
 
-That is Claude Code driving **local Qwen 3.8**. It does not use Cursor usage or Anthropic credits.
+That is Claude Code driving **local Qwen 3.8** (`qwen-code`). It does not use Cursor usage or Anthropic credits.
+
+In [cmux](https://cmux.com): open a workspace on the repo, then run `claude-local` (not plain `claude`). One workspace per parallel agent.
+
+Thinking is **on by default** and can make short replies take many minutes. For snappy turns:
+
+```bash
+ollama run qwen-code --think=false "Say pong"
+```
+
+Prompt text `/no_think` alone is **not** reliable on this model — use `--think=false` / API `"think": false`.
 
 - Do **not** run plain `claude` while balance is exhausted — that still bills Anthropic.
 - Do **not** pick Auto / Claude / GPT in Cursor Agent — that still bills Cursor. Cursor also often cannot reach `localhost` Ollama because Agent traffic goes through Cursor’s servers.
 - Cursor Tab can still use Cursor’s cloud; turn it off if you need to stretch anything left.
 
 Need a new terminal after install so `claude-local` is on PATH (`~/.local/bin`).
+
+If Claude Code shows `500 no user query found in messages`, recreate `qwen-code` with `num_ctx 49152` (see research doc). Opaque `API error · Retrying` → probe Ollama with `curl` first.
 
 ## Whenever balance is back
 

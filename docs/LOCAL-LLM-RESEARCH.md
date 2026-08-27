@@ -14,10 +14,13 @@ This document is the research record: decisions, dead ends, architecture, measur
 | Question | Finding |
 |---|---|
 | Can we run a useful coding agent fully local on this Mac? | **Yes.** Ollama + **Qwen 3.8 27B** (~18 GB) fits in 36 GB with a ~49k context. |
-| Best $0 coding path | Terminal **`claude-local`** (Claude Code CLI → Ollama). Not Cursor Agent. Not signed-in Claude Desktop. |
+| Which model answers? | Local **`qwen-code`** (Qwen 3.8 27B on Ollama). Not Claude cloud, not Cursor. |
+| Best $0 coding path | Terminal / **cmux** → **`claude-local`** (Claude Code CLI → Ollama). Not Cursor Agent. Not signed-in Claude Desktop. |
 | Does Claude Desktop work with local Qwen? | **Only in third-party gateway mode**, with a rewrite proxy (or a future Ollama Apps mapping that actually accepts the Claude model ids). |
 | Does a local model bypass Anthropic’s monthly spend limit in Desktop? | **No, if you stay signed into Claude.ai.** Spend limit is an account gate. Local inference does not clear it. |
-| Why did “hello” take ~1 minute in Desktop? | Model was warm on GPU. Latency was **Desktop’s large system/tools stack + thinking**, not Ollama. Raw curl answered in milliseconds. |
+| Why did “hello” take ~1 minute in Desktop? | Model was warm on GPU. Latency was **Desktop’s large system/tools stack + thinking**, not Ollama. |
+| Why did Claude Code / cmux take ~11 minutes? | **Thinking is on by default** for Qwen 3.8. Reasoning tokens fill the budget before `content`. Prompt `/no_think` is **not** enough — use `think: false` / `--think=false`. |
+| `500 no user query found in messages`? | Claude Code’s opening prompt overflowed **32k** context. Fix: **`num_ctx` 49152**. Not a cmux bug. |
 
 ---
 
@@ -75,6 +78,11 @@ This document is the research record: decisions, dead ends, architecture, measur
 
 ```text
 ┌──────────────────────────────┐
+│  cmux workspace(s)           │  host many Claude Code sessions
+│  run: claude-local           │
+└──────────────┬───────────────┘
+               │
+┌──────────────▼───────────────┐
 │  Claude Code CLI             │  claude-local
 │  (terminal agent)            │───────► 127.0.0.1:11434  Ollama  (qwen-code)
 └──────────────────────────────┘              ▲
@@ -210,6 +218,31 @@ Signing out / switching to gateway mode moves Desktop into **Cowork-on-3P**:
 | Cursor Agent → localhost Ollama | Unreliable | Agent often runs via Cursor’s servers; cannot reach laptop Ollama. |
 | Cursor Tab | Can still use cloud | Turn off if stretching remaining quota. |
 | Terminal outside Cursor | — | Preferred while balance is exhausted. |
+| **cmux** + `claude-local` | No (local) | Native macOS terminal for parallel agents. Run `claude-local` in each workspace — not plain `claude`. |
+
+---
+
+## 7.1 cmux + Claude Code CLI
+
+[cmux](https://cmux.com) is a macOS terminal built for many AI coding agents in parallel. It does **not** replace Claude Code; it hosts it.
+
+**Working setup we used:**
+
+1. Ollama up; `qwen-code` on PATH checks: `curl` tags + `which claude-local`.
+2. Open a cmux workspace in the target repo.
+3. Run **`claude-local`** (not `claude`).
+4. Optional: enable Claude integration / `cmux hooks setup` for unread rings when the agent needs input.
+5. Parallel work = one workspace per task, each with its own `claude-local`.
+
+**Pitfalls:**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Spend / Anthropic errors in cmux | Ran plain `claude` | Use `claude-local` |
+| `500 no user query found in messages` | Context 32k too small for Claude Code tools prompt | Recreate alias with `num_ctx 49152` (§8.5) |
+| `API error · Retrying` with no detail | Claude Code hides the Ollama body | Probe with `curl` / `claude -p … 2>&1` (§8.7) |
+| Multi-minute reply while `ollama ps` shows GPU + Forever | Thinking on by default | `--think=false` / `think: false` (§8.3) |
+| Some cmux builds strip `ANTHROPIC_*` | Wrapper clears inherited auth env | Prefer `claude-local` (sets env in-process) |
 
 ---
 
@@ -217,25 +250,76 @@ Signing out / switching to gateway mode moves Desktop into **Cowork-on-3P**:
 
 ### 8.1 Runtime health (good)
 
+After the 49k recreate:
+
 ```text
 NAME                SIZE     PROCESSOR    CONTEXT    UNTIL
-qwen-code:latest    17 GB    100% GPU     32768      Forever
+qwen-code:latest    17 GB    100% GPU     49152      Forever
 ```
 
-Interpretation: model resident, Metal/GPU path, keep-alive working. Cold start was **not** the ongoing “hello is slow” issue.
+Interpretation: model resident, Metal/GPU path, keep-alive working. When this is healthy, a multi-minute delay is **not** cold load.
 
 ### 8.2 Latency split
 
 | Client | Rough result for a trivial prompt |
 |---|---|
-| Raw `curl` to `11434` with `/no_think` | **Milliseconds** (after warm) |
-| Claude Desktop chat “hello” | **~1 minute** |
+| Raw `curl` `/v1/chat/completions` (warm) | **~3 s** wall time observed |
+| Same request: `/no_think` in user text | Still emits **`reasoning`**, often empty **`content`** if `max_tokens` is small |
+| Claude Desktop chat “hello” | **~1 minute** (Desktop wrapper + thinking) |
+| Claude Code / cmux with thinking default | Observed **~11 minutes** for a simple turn |
 
-**Conclusion:** Ollama + Qwen are fine for short replies. Desktop wraps large system prompts, tools/skills, and (by default) model thinking. That dominates wall time.
+**Conclusion:** weights + GPU path are fine. Wall time is dominated by **thinking traces** and large client system/tool prompts.
+
+### 8.3 Thinking behavior (critical)
+
+Qwen 3.8 is a thinking model. In Ollama, **thinking is on by default**.
+
+**Measured OpenAI-compat response** (`/no_think` in the user string, `max_tokens: 16`):
+
+```json
+{
+  "choices": [{
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "reasoning": "The user wants me to simply say \"pong\". This is a very simple request"
+    },
+    "finish_reason": "length"
+  }],
+  "usage": { "prompt_tokens": 58, "completion_tokens": 16, "total_tokens": 74 }
+}
+```
+
+Findings:
+
+1. Prompt text **`/no_think` is unreliable** for this stack — reasoning still ran.
+2. All completion tokens went into **`reasoning`**; **`content` stayed empty**; finish reason **`length`**.
+3. Claude Code’s Anthropic `/v1/messages` path with a huge system+tools prompt + default thinking is why sessions feel hung or take ~11 minutes.
+4. Correct disable switch (Ollama):
+
+```bash
+# CLI
+ollama run qwen-code --think=false "Say pong"
+
+# API
+curl http://127.0.0.1:11434/api/chat -d '{
+  "model": "qwen-code",
+  "think": false,
+  "stream": false,
+  "messages": [{"role": "user", "content": "Say pong"}]
+}'
+
+# Anthropic-compat attempt
+curl http://127.0.0.1:11434/v1/messages \
+  -H 'content-type: application/json' -H 'x-api-key: ollama' \
+  -d '{"model":"qwen-code","max_tokens":64,"thinking":{"type":"disabled"},"messages":[{"role":"user","content":"Say pong"}]}'
+```
+
+**Operational guidance:** daily agent work with **`think: false`** (or a future `qwen-code-fast` alias). Turn thinking back on only for hard multi-file bugs. Do not rely on `/no_think` in the prompt alone.
 
 ### 8.4 Memory budget
 
-~49k context + ~18 GB weights is the comfort line on 36 GB with macOS + IDE. If Activity Monitor memory pressure goes yellow/red, close browsers/other apps before raising context further.
+~49k context + ~18 GB weights is the comfort line on 36 GB with macOS + IDE. If Activity Monitor memory pressure goes yellow/red, close browsers/other apps before raising context further. First load after raising `num_ctx` can take minutes while KV/context allocates even though `ollama ps` already lists the model.
 
 ### 8.5 `500 no user query found in messages` (Claude Code / cmux)
 
@@ -247,14 +331,55 @@ Interpretation: model resident, Metal/GPU path, keep-alive working. Cold start w
 
 **Cause (Ollama + Qwen 3.8):** Claude Code sends a large opening payload (system prompt + dozens of tool schemas, often ~35k+ tokens). With `num_ctx` 32768, Ollama silently truncates and can drop the user turn; the Qwen 3.8 renderer then errors with this misleading 500. Same class of bug as [ollama#17778](https://github.com/ollama/ollama/issues/17778) / [ollama#17754](https://github.com/ollama/ollama/issues/17754). Not a cmux bug.
 
-**Fix on this Mac:** raise context to **49152** on the `qwen-code` alias (fits 36 GB with the 27B Q4/MLX weights). Upgrade Ollama when renderer fixes land. Also pin Haiku/Sonnet helper model env vars to `qwen-code` in `claude-local`.
+**Fix on this Mac:** raise context to **49152** on the `qwen-code` alias (fits 36 GB with the 27B Q4/MLX weights). Confirm with `ollama ps` → `CONTEXT 49152`. Upgrade Ollama when renderer fixes land. Also pin Haiku/Sonnet helper model env vars to `qwen-code` in `claude-local`.
 
-### 8.6 Mitigations for chat latency
+**Recreate without needing the git checkout:**
 
-- Prefix short chats with `/no_think`.
-- Prefer `claude-local` for coding agents (closer to raw Ollama cost).
+```bash
+cat > /tmp/qwen-code.Modelfile <<'EOF'
+FROM qwen3.8:27b
+PARAMETER num_ctx 49152
+PARAMETER num_predict 8192
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
+PARAMETER top_k 20
+PARAMETER repeat_penalty 1.05
+SYSTEM """You are a local coding agent. Think carefully, then finish the job. Reasoning effort is medium. Prefer small patches. Do not claim you ran a command you did not run."""
+EOF
+ollama create qwen-code -f /tmp/qwen-code.Modelfile
+```
+
+If MLX was installed with `--mlx`, use `FROM qwen3.8:27b-nvfp4` instead.
+
+### 8.6 Mitigations for latency
+
+- Disable thinking: `--think=false` / `"think": false` (preferred).
+- Do **not** trust `/no_think` alone on this model.
+- Prefer `claude-local` in cmux/terminal over Claude Desktop for coding.
 - Optional: MLX quant (`--mlx`).
-- Optional later: lower `num_ctx` for chat-only aliases (agent alias stays at 49k).
+- Optional later: second alias `qwen-code-fast` with thinking off by default; keep `qwen-code` for hard bugs.
+
+### 8.7 Diagnosing opaque `API error · Retrying`
+
+Claude Code / cmux often only shows `API error · Retrying in 0s · attempt N/10`. Surface the real failure:
+
+```bash
+# Direct Anthropic-compat probe
+curl -sS -w "\nHTTP %{http_code}\n" --max-time 120 \
+  http://127.0.0.1:11434/v1/messages \
+  -H 'content-type: application/json' -H 'x-api-key: ollama' \
+  -d '{"model":"qwen-code","max_tokens":64,"messages":[{"role":"user","content":"Say pong"}]}'
+
+# One-shot Claude Code
+ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY= \
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 \
+claude --model qwen-code -p "Say pong only" 2>&1 | tee /tmp/claude-local-err.txt
+
+# Ollama log
+tail -n 80 ~/.ollama/logs/server.log
+```
+
+If `/v1/messages` hangs for minutes while `ollama ps` already shows GPU + Forever, treat it as **thinking**, not a dead server — interrupt and retest with `think: false`.
 
 ---
 
@@ -262,7 +387,7 @@ Interpretation: model resident, Metal/GPU path, keep-alive working. Cold start w
 
 ### 9.1 While balance is exhausted
 
-1. **Primary:** `claude-local` inside the repo.  
+1. **Primary:** cmux or Terminal → `claude-local` inside the repo (prefer `--think=false` / fast path until quality needs thinking).  
 2. **Optional UI:** Claude Desktop **Continue with Gateway** → `http://127.0.0.1:11436` (accept that cloud threads are not available in this mode).  
 3. **Avoid:** plain `claude`, Cursor Agent cloud models, Desktop signed into Anthropic while capped.
 
@@ -276,20 +401,20 @@ Interpretation: model resident, Metal/GPU path, keep-alive working. Cold start w
 
 ```bash
 # Health
-curl -s http://127.0.0.1:11434/api/tags
+curl -s http://127.0.0.1:11434/api/tags >/dev/null && echo ollama_ok
+which claude-local
 ollama ps
 curl -s http://127.0.0.1:11436/health
 
-# Warm model
-ollama run qwen-code "Reply with the single word pong."
+# Warm + thinking off
+ollama run qwen-code --think=false "Say pong"
 
-# Coding agent (free / local)
+# Coding agent in cmux / terminal
 cd /path/to/repo && claude-local
 
-# Fast smoke (no Desktop)
-curl -s http://127.0.0.1:11434/v1/chat/completions \
-  -H 'content-type: application/json' \
-  -d '{"model":"qwen-code","messages":[{"role":"user","content":"/no_think\nhello"}],"max_tokens":32}'
+# Fast API smoke (thinking off)
+curl -s http://127.0.0.1:11434/api/chat \
+  -d '{"model":"qwen-code","think":false,"stream":false,"messages":[{"role":"user","content":"Say pong"}]}'
 ```
 
 ---
@@ -299,14 +424,14 @@ curl -s http://127.0.0.1:11434/v1/chat/completions \
 | Path | Purpose |
 |---|---|
 | `install.sh` | Self-contained Mac installer (Ollama env, model, `claude-local`, Desktop proxy LaunchAgent). |
-| `scripts/claude-local` | Session-only env override → Ollama; does not rewrite `~/.zshrc` Anthropic setup. |
+| `scripts/claude-local` | Session-only env override → Ollama; pins haiku/sonnet helper models; does not rewrite `~/.zshrc`. |
 | `scripts/claude-desktop-proxy.py` | 11436 rewrite proxy. |
 | `scripts/claude-desktop-proxy` | Launcher wrapper. |
-| `modelfiles/qwen-code.Modelfile` | Alias parameters + medium-reasoning system prompt. |
+| `modelfiles/qwen-code.Modelfile` | Alias parameters (`num_ctx` 49152) + medium-reasoning system prompt. |
 | `README.md` | Install / run guide. |
 | This file | Research findings for the team. |
 
-Installer also embeds the proxy for machines that only copy `install.sh`.
+Installer also embeds the proxy for machines that only copy `install.sh`. Refresh `~/.local/bin/claude-local` after pulling launcher changes (or paste the script directly — no git checkout required).
 
 ---
 
@@ -314,17 +439,20 @@ Installer also embeds the proxy for machines that only copy `install.sh`.
 
 1. Will a future Ollama Apps → Claude mapping accept Desktop’s Claude ids and map them to local Qwen without a custom proxy?  
 2. Can Desktop gateway mode ever attach to prior Claude.ai threads? (Today: no evidence; treat as separate stores.)  
-3. Best chat-only Modelfile (lower ctx, think off) vs agent alias — may be worth a second Ollama tag (`qwen-chat`) later.  
-4. Team policy: when is local Qwen “good enough” vs escalate to Claude/GPT?
+3. Ship a second alias `qwen-code-fast` with thinking off by default?  
+4. Can Claude Code be told to pass `think: false` / Anthropic `thinking.type=disabled` through to Ollama reliably?  
+5. Team policy: when is local Qwen “good enough” vs escalate to Claude/GPT?
 
 ---
 
 ## 12. Bottom line for the team
 
-1. **Local coding works** on M3 Pro 36 GB with Qwen 3.8 27B + Ollama.  
-2. **`claude-local` is the reliable $0 agent.** Cursor Agent is not.  
+1. **Local coding works** on M3 Pro 36 GB with **Qwen 3.8 27B** (`qwen-code`) + Ollama.  
+2. **`claude-local` in cmux/terminal is the reliable $0 agent.** Cursor Agent is not. Plain `claude` still bills Anthropic.  
 3. **Claude Desktop + local Qwen requires gateway mode + name rewriting** (our 11436 proxy, unless Ollama’s Apps path is fixed).  
 4. **Signed-in Desktop still enforces Anthropic spend limits** even when the UI shows Qwen.  
-5. **Desktop is slow for trivial chat** because of its prompt/tools/thinking wrapper; raw Ollama is fast when the model is warm on GPU.
+5. Use **`num_ctx` 49152** or Claude Code hits `500 no user query found in messages`.  
+6. **Thinking defaults on** and can turn a simple reply into ~11 minutes; **`/no_think` is not enough** — use `--think=false` / `"think": false`.  
+7. When the UI only says `API error · Retrying`, probe Ollama directly; do not debug cmux first.
 
 For install and daily commands, see [`README.md`](./README.md).
