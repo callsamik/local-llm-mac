@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-27  
 **Branch:** `main`  
-**Machine:** Office MacBook Pro M3 Pro, **36 GB** → prefer **14B** local headroom.
+**Machine:** Office MacBook Pro M3 Pro, **36 GB** → prefer **14B** local headroom.  
+**Public repo:** https://github.com/callsamik/local-llm-mac
 
 Do **not** reopen OmniRoute / multiprovider-llm unless the user asks.
 
@@ -10,18 +11,30 @@ Do **not** reopen OmniRoute / multiprovider-llm unless the user asks.
 
 ## Current decision
 
-**Auto ladder:** `local → haiku → sonnet` only.  
-**Opus / Fable:** off by default (`ROUTER_ENABLE_OPUS` / `ROUTER_ENABLE_FABLE`). When on, dedicated score/phrase categories auto-route only the hardest prompts there; otherwise those prompts stay on sonnet with higher effort.  
-**Also scored:** effort (`low|medium|high|xhigh|max`, extra→xhigh) + thinking (`off`|adaptive).  
-**Local LLM scores:** when heuristics are uncertain/conflicting/borderline (`ROUTER_LLM_CLASSIFY=auto`), Qwen returns `{lane,score,effort}`; falls back to heuristic if Ollama is down.  
-**Versions:** env-pinned; cascade on errors.  
-**Hard block:** `ROUTER_DISABLE_OPUS=1` / `ROUTER_DISABLE_FABLE=1`.
+**Auto ladder:** `local → haiku → sonnet` (+ effort/thinking).  
+**Opus / Fable:** off by default. Turn on with config flags so only matching hard categories can use them.  
+**Local LLM scores:** when heuristics are uncertain/conflicting/borderline (`ROUTER_LLM_CLASSIFY=auto`).  
+**Versions:** env-pinned; cascade on errors.
+
+### Enable Opus / Fable
+
+```bash
+export ROUTER_ENABLE_OPUS=1
+export ROUTER_ENABLE_FABLE=1   # optional
+# restart llm-router (or reload LaunchAgent)
+curl -s http://127.0.0.1:11437/health   # enable_opus / enable_fable should be true
+```
+
+Accepted: `1` / `true` / `yes` / `on`.  
+Force off: unset, `0`, or `ROUTER_DISABLE_OPUS=1` / `ROUTER_DISABLE_FABLE=1`.
+
+When enabled, dedicated phrase/score bands assign those lanes (opus ≈ score ≥4 / security-incident cues; fable ≈ score ≥6 / org-wide cues). When disabled, those prompts stay on **sonnet** with higher effort. `x-route` / `use opus` are gated by the same flags.
 
 Specs:
 - [`docs/superpowers/specs/2026-08-27-effort-thinking-optin-design.md`](./superpowers/specs/2026-08-27-effort-thinking-optin-design.md)
-- Earlier three-lane history: [`2026-08-27-heuristic-router-design.md`](./superpowers/specs/2026-08-27-heuristic-router-design.md) (superseded for lanes)
+- SOLID layout: [`docs/superpowers/specs/2026-08-27-solid-router-design.md`](./superpowers/specs/2026-08-27-solid-router-design.md)
 
-**Code layout:** SOLID packages `llm_router/` and `claude_desktop_proxy/` (protocols + composition root); `scripts/*.py` are thin shims.
+**Code layout:** packages `llm_router/` and `claude_desktop_proxy/`; `scripts/*.py` are thin shims.
 
 ---
 
@@ -55,4 +68,4 @@ curl -s http://127.0.0.1:11437/health
 
 ## One-liner
 
-> Auto routes local/haiku/sonnet with effort+thinking; opus/fable only on request; cascade to local on errors.
+> Auto routes local/haiku/sonnet with effort+thinking; enable Opus/Fable via `ROUTER_ENABLE_OPUS` / `ROUTER_ENABLE_FABLE` for category-matched hard prompts; cascade to local on errors.

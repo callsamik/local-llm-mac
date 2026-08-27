@@ -1,7 +1,13 @@
 # Implementation session
 
-**Goal:** Hybrid C — auto local/haiku/sonnet + effort/thinking; opus/fable opt-in only.
+**Goal:** Heuristic router with effort/thinking; Opus/Fable behind `ROUTER_ENABLE_*` flags.
 
-**Done:** scoring, rewrite (`output_config.effort` + adaptive thinking), cascade skip disables, tests, specs.
+**Enable costly tiers:**
+```bash
+export ROUTER_ENABLE_OPUS=1
+export ROUTER_ENABLE_FABLE=1
+# restart llm-router; confirm /health enable_* fields
+```
 
-**Mac:** restart `llm-router`, `claude-routed`, confirm model ids / OAuth.
+**Repo:** https://github.com/callsamik/local-llm-mac  
+**Mac:** `./install.sh` → `claude` login → `claude-routed`

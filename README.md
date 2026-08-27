@@ -87,6 +87,42 @@ Protocols live in each package’s `protocols.py`. Wire-up is only in `compositi
 **When a flag is on**, dedicated phrase/score categories can auto-forward to that model (and `use opus` / `use fable` / `x-route` also work for that tier).  
 `ROUTER_DISABLE_OPUS=1` / `ROUTER_DISABLE_FABLE=1` force the flag off.
 
+### Enable Opus / Fable
+
+Set the flags **before starting** `llm-router`, then restart the process.
+
+```bash
+# current shell
+export ROUTER_ENABLE_OPUS=1
+export ROUTER_ENABLE_FABLE=1   # optional — omit if you only want Opus
+llm-router
+```
+
+Persist in `~/.zshrc` (or `~/.zprofile`) if you want them every session:
+
+```bash
+echo 'export ROUTER_ENABLE_OPUS=1' >> ~/.zshrc
+echo 'export ROUTER_ENABLE_FABLE=1' >> ~/.zshrc
+source ~/.zshrc
+```
+
+If `llm-router` is a LaunchAgent, put the same vars in the plist `EnvironmentVariables` (or source them from `~/.config/local-llm-mac/anthropic.env` before load), then:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.local-llm.llm-router.plist
+launchctl load   ~/Library/LaunchAgents/com.local-llm.llm-router.plist
+```
+
+Confirm:
+
+```bash
+curl -s http://127.0.0.1:11437/health | python3 -c \
+  'import sys,json; d=json.load(sys.stdin); print(d.get("enable_opus"), d.get("enable_fable"))'
+# expect: True True
+```
+
+Accepted values: `1`, `true`, `yes`, `on`. Off = unset / `0` / `false`.
+
 **Effort** (`low|medium|high|xhigh|max`; “extra” → `xhigh`) and **thinking** (`off` / adaptive `on`) are set on hosted requests via `output_config.effort` + `thinking`. Client values win when already present. Thinking is never left off at `xhigh`/`max`.
 
 **Cascade:** selected lane → lower tiers → **local** last (`ROUTER_CASCADE=1`). Disabled opus/fable are skipped.
