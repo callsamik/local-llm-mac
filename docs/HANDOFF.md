@@ -10,24 +10,23 @@ This document is for the next human or agent session. Do **not** reopen OmniRout
 
 ## 1. What we are building (current decision)
 
-**Primary deliverable:** offline **heuristic scorer** with three lanes (now the **default `./install.sh` path**):
+**Primary deliverable:** offline **heuristic scorer** with a **five-lane ladder** + **cascade failover** (default `./install.sh` path):
 
 | Lane | Model | Role |
 |------|--------|------|
-| **local** | `qwen-fast` (`qwen3:14b` via Ollama) | Easy/medium — **happy path**, not failover-only |
-| **cheap** | **Haiku** | Hosted mid-tier |
-| **frontier** | **Sonnet** | Hard / reasoning-heavy |
+| **local** | `qwen-fast` (`qwen3:14b`) | Easy lookups / renames / explain |
+| **haiku** | **Haiku** (alias `cheap`) | Everyday implement / fix / test |
+| **sonnet** | **Sonnet** (aliases `frontier`, `cloud`) | Harder multi-file / CI flakes |
+| **opus** | **Opus** | Security, incidents, races, deep digs |
+| **fable** | **Fable** | Org-wide / longest-horizon / hardest |
 
-**Locked choice:** hosted pair **A = Haiku + Sonnet** (not Sonnet + Opus).
+**Cascade (default on):** start at the scored lane → walk **down** the ladder → **local last** on model-not-found, 429/5xx/529, connect errors. `ROUTER_CASCADE=0` disables.
 
-**Design spec (source of truth):**  
-[`docs/superpowers/specs/2026-08-27-heuristic-router-design.md`](./superpowers/specs/2026-08-27-heuristic-router-design.md)
+**Design origin:** [`docs/superpowers/specs/2026-08-27-heuristic-router-design.md`](./superpowers/specs/2026-08-27-heuristic-router-design.md) (originally three-lane; **code now supersedes** that doc for lanes/cascade).
 
-**Status of that spec:** Implemented in `scripts/llm-router.py` (three lanes). Mac/cmux live validation still recommended.
+**Status:** Implemented in `scripts/llm-router.py`. Mac/cmux live validation still recommended.
 
-**Project folder (this machine):** `~/Projects/local-llm-mac` → `/workspace`  
-**Session file:** `IMPLEMENTATION-SESSION.md`  
-**Plan:** [`docs/superpowers/plans/2026-08-27-heuristic-router.md`](./superpowers/plans/2026-08-27-heuristic-router.md)
+**Project folder:** `~/Projects/local-llm-mac` → `/workspace`
 
 ---
 
@@ -35,141 +34,97 @@ This document is for the next human or agent session. Do **not** reopen OmniRout
 
 | Item | Doc | Notes |
 |------|-----|--------|
-| Stage orchestrator Plan→Build→Clean→Audit | [`2026-08-27-feature-pipeline-design.md`](./superpowers/specs/2026-08-27-feature-pipeline-design.md) | Marked **DEFERRED**. Local was failover-only there; that contradicted the original heuristic ask. |
-| OmniRoute / multiprovider-llm | — | Rejected: privacy (office code) + not the stage/heuristic brain. |
-| Cursor Agent / Fable / pool frontier models | — | Not pipeline/router targets. Cursor = editor. |
+| Stage orchestrator Plan→Build→Clean→Audit | [`2026-08-27-feature-pipeline-design.md`](./superpowers/specs/2026-08-27-feature-pipeline-design.md) | **DEFERRED**. |
+| OmniRoute / multiprovider-llm | — | Rejected: privacy (office code). |
 | Claude Desktop as orchestrator | — | Side chat only (rewrite proxy `:11436`). |
-| Updating `docs/LOCAL-LLM-RESEARCH.md` | — | User asked not to update research doc while trying things practically; keep that unless they ask. |
+| Updating `docs/LOCAL-LLM-RESEARCH.md` | — | User asked not to update unless they ask. |
 
 ---
 
-## 3. How the operator uses it (intended UX)
+## 3. Operator UX
 
 ```
-Cursor          → editor / browse (not the router runner)
+Cursor          → editor only
 cmux / terminal → claude-routed → llm-router :11437
-                                    ├ local    → Ollama qwen-fast
-                                    ├ cheap    → Anthropic Haiku
-                                    └ frontier → Anthropic Sonnet
-claude-local    → always local Qwen (side chat / offline)
+                                    ├ fable  → Claude Fable
+                                    ├ opus   → Claude Opus
+                                    ├ sonnet → Claude Sonnet
+                                    ├ haiku  → Claude Haiku
+                                    └ local  → Ollama qwen-fast  (last resort on cascade)
+claude-local    → always local Qwen
 ```
 
-- Real `ANTHROPIC_API_KEY` is **optional**. Prefer **Claude Code CLI login** (subscription OAuth); the router loads it from Keychain / `~/.claude/.credentials.json` for cheap/frontier.
-- No Claude login and no API key → those lanes fall back to local with an explicit log reason.
-- Do **not** put permanent `ANTHROPIC_BASE_URL=…11434` in shell rc (breaks real `claude` later).
+- Prefer **Claude Code CLI login** (OAuth). API key optional.
+- No auth → hosted picks collapse to local.
+- Do **not** put permanent `ANTHROPIC_BASE_URL=…` in shell rc.
 
 ---
 
-## 4. What already exists in the repo (code)
-
-### Working / partial today
+## 4. Repo map
 
 | Path | State |
 |------|--------|
-| `scripts/llm-router.py` | **3-lane** heuristic: `local` / `cheap` / `frontier` (Haiku + Sonnet). |
-| `scripts/claude-routed` | Points Claude Code at `:11437`. |
-| `scripts/setup-14b-router.sh` | Pulls `qwen3:14b`, creates `qwen-fast`, installs router + optional LaunchAgent. |
-| `modelfiles/qwen-code-14b.Modelfile` | Lean 14B alias (`num_ctx` 24576). |
-| `scripts/test-router-classify.sh` | Fixtures for local / cheap / frontier. |
-| `scripts/claude-local` | Session-only env → Ollama `qwen-code` (27B path). |
-| `scripts/claude-desktop-proxy.py` | Desktop gateway rewrite on `:11436` → local model. |
-| `install.sh` + `modelfiles/qwen-code.Modelfile` | Original 27B install path. |
-| `README.md` | Documents 27B install + three-lane smart router. |
-
-### Classify smoke (three-lane)
+| `scripts/llm-router.py` | Five lanes + cascade + scoring layers |
+| `scripts/claude-routed` | Claude Code → `:11437` |
+| `scripts/setup-14b-router.sh` | 14B + router install |
+| `scripts/test-router-classify.sh` | local/haiku/sonnet/opus/fable + cascade helpers |
+| `README.md` | Documents ladder + cascade |
 
 ```bash
 bash scripts/test-router-classify.sh
-# local / cheap / frontier fixtures
+curl -s http://127.0.0.1:11437/health   # lanes, cascade, model ids, cloud_auth_ready
 ```
 
 ---
 
-## 5. Score bands (to implement)
+## 5. Score bands
 
-From the heuristic design:
+| Score / signal | Lane |
+|----------------|------|
+| `≤ 0` / easy catalogs | local |
+| `1` / medium implement-fix-test | haiku |
+| `2` / hard but not stacked | sonnet |
+| `3–4` / opus phrases / stacked hard | opus |
+| `≥ 5` / fable phrases | fable |
 
-| Score | Lane |
-|------|------|
-| `≤ 0` | local |
-| `== 1` | cheap |
-| `≥ 2` | frontier |
+Layers: regex → informal phrases → structural cues → optional local LLM classify (`ROUTER_LLM_CLASSIFY=auto`).
 
-- Hard patterns / thinking / long text → push toward frontier.
-- Easy patterns → push toward local.
-- Mid “implement / fix / add test” without hard keywords → **cheap** (+1), so 14B is not overloaded and Sonnet is not burned on routine edits.
-- Sticky session so tool loops stay on one lane.
-- Overrides: `x-route: local|cheap|frontier`, `ROUTER_FORCE=…`; legacy `cloud` → frontier.
+Overrides: `x-route` / `ROUTER_FORCE` = `local|haiku|sonnet|opus|fable` (+ legacy aliases).
 
 ---
 
-## 6. Environment / ports (Mac)
+## 6. Environment
 
 | Port | Service |
 |------|---------|
 | `11434` | Ollama |
-| `11436` | Claude Desktop rewrite proxy (optional) |
+| `11436` | Claude Desktop rewrite proxy |
 | `11437` | `llm-router` |
 
-Useful env:
-
-- `ROUTER_LOCAL_MODEL=qwen-fast`
-- `ROUTER_CHEAP_MODEL=claude-haiku-4-5` (adjust if account catalog differs)
-- `ROUTER_FRONTIER_MODEL=claude-sonnet-4-6`
-- `ANTHROPIC_API_KEY` or `ROUTER_ANTHROPIC_API_KEY`
-- Placeholder `ollama` must **not** count as a real key (already handled in router).
-
-Mac setup sketch:
-
-```bash
-./scripts/setup-14b-router.sh
-export ANTHROPIC_API_KEY=sk-ant-...
-ollama stop qwen-code    # free 27B if loaded
-llm-router               # if LaunchAgent not up
-# cmux on repo:
-claude-routed
-```
+- `ROUTER_LOCAL_MODEL`, `ROUTER_HAIKU_MODEL`, `ROUTER_SONNET_MODEL`, `ROUTER_OPUS_MODEL`, `ROUTER_FABLE_MODEL`
+- Legacy: `ROUTER_CHEAP_MODEL`, `ROUTER_FRONTIER_MODEL`, `ROUTER_CLOUD_MODEL`
+- `ROUTER_CASCADE=1` (default), `ROUTER_LLM_CLASSIFY=auto`
 
 ---
 
-## 7. Constraints to preserve
+## 7. Constraints
 
-1. **Privacy:** Anthropic + local Ollama only. No third-party LLM gateways that see office code.  
-2. **36GB headroom:** Prefer 14B (`qwen-fast`) for the local lane; unload 27B when using the router path.  
-3. **Thinking on Qwen:** `/no_think` unreliable; use `--think=false` / API `"think": false`.  
-4. **Claude Code 500 “no user query found”:** was ctx too small on 27B path → `num_ctx` 49152 for `qwen-code`; 14B alias uses 24576 by design.  
-5. **Cursor at $0 balance:** editor only; Agent/BYOK won’t unlock local.  
-6. **Do not** expand scope back into stage pipeline unless user asks.
-
----
-
-## 8. Suggested next steps (in order)
-
-1. ~~User confirms heuristic design / implement three lanes~~ **done in repo**.  
-2. On Mac: `setup-14b-router.sh`, run `test-router-classify.sh`, then `claude-routed` in cmux; watch `[llm-router] route=…` logs.  
-3. Only after spike validation: reconsider deferred feature-pipeline design.
+1. Privacy: Anthropic + local Ollama only.  
+2. 36GB: prefer 14B local lane; unload 27B when routing.  
+3. Qwen thinking: `--think=false` / `"think": false`.  
+4. Cursor at $0: editor only.  
+5. Do not implement feature-pipeline unless asked.
 
 ---
 
-## 9. Key commits (recent)
+## 8. Next steps
 
-| Commit | Meaning |
-|--------|---------|
-| `fefa31e` | 14B Modelfile + 2-lane router + `claude-routed` + setup script |
-| `b60cfce` | Feature-pipeline design (now deferred) |
-| `0dc8ce0` | Heuristic local/cheap/frontier design as primary |
-| `be0820c` | Lock hosted pair to Haiku + Sonnet |
+1. Mac: `setup-14b-router.sh` / `./install.sh`, `claude` login, `claude-routed`, watch cascade logs.  
+2. Confirm Opus/Fable model ids on the account (`ROUTER_OPUS_MODEL` / `ROUTER_FABLE_MODEL` if catalog differs).  
+3. Feature-pipeline remains deferred.
 
 ---
 
-## 10. Open questions (none blocking choice A)
+## 9. One-line summary
 
-- Exact Haiku/Sonnet model id strings on the user’s Anthropic account (env-overridable).  
-- Whether v1 should degrade hosted 429 → local (`ROUTER_DEGRADE_TO_LOCAL`); design says optional follow-up.  
-- Whether README should demote 27B to “legacy” once 14B path is proven — not required for the spike.
-
----
-
-## 11. One-line summary for the next agent
-
-> Three-lane heuristic router is implemented in `scripts/llm-router.py` (local Qwen / Haiku / Sonnet). Validate on the Mac via cmux + `claude-routed`. Feature pipeline remains deferred. Project path: `~/Projects/local-llm-mac`.
+> Five-lane router (`local`/`haiku`/`sonnet`/`opus`/`fable`) with downward cascade to local is in `scripts/llm-router.py`. Validate on Mac via `claude-routed`. Feature pipeline deferred.

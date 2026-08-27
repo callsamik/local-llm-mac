@@ -27,7 +27,7 @@ usage() {
 Install Ollama, Qwen 14B + heuristic router (primary), Claude Code, and helpers.
 
 Default (36GB Mac): qwen-fast (14B) + llm-router + claude-routed
-  local → Qwen · cheap → Haiku · frontier → Sonnet (Claude Code OAuth)
+  local → Haiku → Sonnet → Opus → Fable (cascade to local on errors; Claude Code OAuth)
 
 Usage:
   ./install.sh [options]
@@ -732,7 +732,7 @@ print_next_steps() {
 
 Done.
 
-Primary path (36GB): heuristic router — local Qwen 14B / cheap Haiku / frontier Sonnet.
+Primary path (36GB): heuristic router — local / haiku / sonnet / opus / fable (+ cascade).
 
   # once: Claude Code CLI login (subscription OAuth; no API key required)
   claude

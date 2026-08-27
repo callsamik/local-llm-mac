@@ -106,10 +106,10 @@ Done.
    cd /path/to/repo
    claude-routed
 
-Lanes: local=qwen-fast · cheap=Haiku · frontier=Sonnet
+Lanes: local → haiku → sonnet → opus → fable (cascade down to local on errors)
 Auth: Claude Code OAuth (preferred) or API key
-Overrides: x-route: local|cheap|frontier
-Force: ROUTER_FORCE=local|cheap|frontier llm-router
+Overrides: x-route: local|haiku|sonnet|opus|fable  (aliases: cheap, frontier, cloud)
+Force: ROUTER_FORCE=…  Cascade: ROUTER_CASCADE=1 (default)
 
 Health: curl -s http://127.0.0.1:11437/health
 # look for cloud_auth_ready / claude_cli_oauth_configured

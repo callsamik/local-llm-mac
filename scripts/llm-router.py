@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Route Anthropic /v1/messages across local / cheap / frontier.
+"""Route Anthropic /v1/messages across a Claude + local ladder.
 
-local    → Ollama qwen-fast (easy/medium happy path)
-cheap    → Anthropic Haiku
-frontier → Anthropic Sonnet
+local  → Ollama qwen-fast
+haiku  → Claude Haiku (legacy alias: cheap)
+sonnet → Claude Sonnet (legacy aliases: frontier, cloud)
+opus   → Claude Opus
+fable  → Claude Fable (top tier)
 
-Overrides:
-  x-route / ROUTER_FORCE = local|cheap|frontier|cloud|auto
-  (cloud is a legacy alias for frontier)
+On model-not-found / rate-limit / upstream errors, cascade down the ladder
+and ultimately fall back to local Qwen.
+
+Overrides: x-route / ROUTER_FORCE = local|haiku|sonnet|opus|fable|cheap|frontier|cloud
 
 Claude Code: point ANTHROPIC_BASE_URL at this proxy (default :11437).
 """
@@ -29,23 +32,39 @@ class Cfg:
     local_upstream = os.environ.get("OLLAMA_UPSTREAM", "http://127.0.0.1:11434").rstrip("/")
     cloud_upstream = os.environ.get("ANTHROPIC_UPSTREAM", "https://api.anthropic.com").rstrip("/")
     local_model = os.environ.get("ROUTER_LOCAL_MODEL", "qwen-fast")
-    cheap_model = os.environ.get("ROUTER_CHEAP_MODEL", "claude-haiku-4-5")
-    frontier_model = os.environ.get(
-        "ROUTER_FRONTIER_MODEL",
-        os.environ.get("ROUTER_CLOUD_MODEL", "claude-sonnet-4-6"),
+    haiku_model = os.environ.get(
+        "ROUTER_HAIKU_MODEL",
+        os.environ.get("ROUTER_CHEAP_MODEL", "claude-haiku-4-5"),
     )
-    # Back-compat alias
-    cloud_model = frontier_model
+    sonnet_model = os.environ.get(
+        "ROUTER_SONNET_MODEL",
+        os.environ.get(
+            "ROUTER_FRONTIER_MODEL",
+            os.environ.get("ROUTER_CLOUD_MODEL", "claude-sonnet-4-6"),
+        ),
+    )
+    opus_model = os.environ.get("ROUTER_OPUS_MODEL", "claude-opus-5")
+    fable_model = os.environ.get("ROUTER_FABLE_MODEL", "claude-fable-5")
+    # Back-compat aliases
+    cheap_model = haiku_model
+    frontier_model = sonnet_model
+    cloud_model = sonnet_model
     listen_host = os.environ.get("ROUTER_HOST", "127.0.0.1")
     listen_port = int(os.environ.get("ROUTER_PORT", "11437"))
     force = os.environ.get("ROUTER_FORCE", "").strip().lower()
     log_routes = os.environ.get("ROUTER_LOG", "1") != "0"
     # auto = local LLM only when heuristic is uncertain; always|never also supported
     llm_classify = os.environ.get("ROUTER_LLM_CLASSIFY", "auto").strip().lower()
+    # Cascade on upstream failure (model missing / 429 / 5xx / connect)
+    cascade = os.environ.get("ROUTER_CASCADE", "1") != "0"
 
 
 # Sticky route per conversation fingerprint so tool loops stay on one backend.
 _SESSION_ROUTE: dict[str, str] = {}
+
+# Highest → lowest. Failover walks downward; local is last resort.
+LANE_ORDER = ["fable", "opus", "sonnet", "haiku", "local"]
+HOSTED_LANES = {"haiku", "sonnet", "opus", "fable"}
 
 HARD_PATTERNS = [
     # Architecture / system design
@@ -311,6 +330,19 @@ EASY_PATTERNS = [
 
 
 # Informal / paraphrased phrases (substring match on normalized text).
+OPUS_PHRASES = [
+    "multi service migration", "multiservice migration", "entire codebase",
+    "whole codebase", "cross cutting", "cross-cutting", "distributed systems",
+    "threat model", "security audit", "production outage", "root cause analysis",
+    "deep dive into", "formal verification", "consensus",
+]
+
+FABLE_PHRASES = [
+    "longest horizon", "maximum reasoning", "mythos", "use fable",
+    "hardest problem", "mission critical redesign", "company wide migration",
+    "company-wide migration", "org wide architecture", "org-wide architecture",
+]
+
 HARD_PHRASES = [
     "figure out why", "dig into why", "dig into how", "get to the bottom",
     "whats going wrong", "what's going wrong", "what is going wrong",
@@ -446,10 +478,12 @@ def ollama_classify_lane(user_text: str) -> str | None:
                 "role": "system",
                 "content": (
                     "Classify the coding task difficulty for a router. "
-                    "Reply with exactly one word: local, cheap, or frontier. "
+                    "Reply with exactly one word: local, haiku, sonnet, opus, or fable. "
                     "local=lookup/rename/typo/explain. "
-                    "cheap=normal implement/fix/test/refactor. "
-                    "frontier=architecture/security/incident/race/deep reasoning."
+                    "haiku=normal implement/fix/test/refactor. "
+                    "sonnet=harder multi-file bugs and non-trivial coding. "
+                    "opus=architecture/security/incident/race/deep reasoning. "
+                    "fable=extreme long-horizon / org-wide hardest work."
                 ),
             },
             {"role": "user", "content": user_text[:4000]},
@@ -478,8 +512,13 @@ def ollama_classify_lane(user_text: str) -> str | None:
         if isinstance(msg, dict):
             content = str(msg.get("content") or "")
         content = content.strip().lower()
-        for lane in ("frontier", "cheap", "local"):
+        # Prefer longer/more specific labels first; map legacy names.
+        for lane in ("fable", "opus", "sonnet", "haiku", "frontier", "cheap", "local"):
             if re.search(rf"\b{lane}\b", content):
+                if lane == "frontier":
+                    return "sonnet"
+                if lane == "cheap":
+                    return "haiku"
                 return lane
     except Exception:  # noqa: BLE001
         return None
@@ -614,12 +653,28 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
         score += 2
         reasons.append("effort-high")
 
-    if hard_hit:
-        lane = "frontier"
-        score = max(score, 2)
+    opus_hit = bool(phrase_hits(norm, OPUS_PHRASES, "opus-phrase"))
+    fable_hit = bool(phrase_hits(norm, FABLE_PHRASES, "fable-phrase"))
+    if opus_hit:
+        reasons.extend(phrase_hits(norm, OPUS_PHRASES, "opus-phrase"))
+        score = max(score, 4)
+    if fable_hit:
+        reasons.extend(phrase_hits(norm, FABLE_PHRASES, "fable-phrase"))
+        score = max(score, 6)
+
+    if hard_hit or opus_hit or fable_hit:
+        if fable_hit or score >= 6:
+            lane = "fable"
+            score = max(score, 6)
+        elif opus_hit or score >= 4:
+            lane = "opus"
+            score = max(score, 4)
+        else:
+            lane = "sonnet"
+            score = max(score, 2)
         confident = True
     elif medium_hit:
-        lane = "cheap"
+        lane = "haiku"
         score = max(score, 1)
         confident = True
     elif easy_hits > 0 and score <= 0:
@@ -629,10 +684,16 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
         lane = "local"
         confident = False  # no catalog hit — ambiguous
     elif score == 1:
-        lane = "cheap"
+        lane = "haiku"
+        confident = True
+    elif score == 2:
+        lane = "sonnet"
+        confident = True
+    elif score <= 4:
+        lane = "opus"
         confident = True
     else:
-        lane = "frontier"
+        lane = "fable"
         confident = True
 
     # Optional local LLM tie-break for paraphrases regex/phrases missed.
@@ -642,15 +703,10 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
     # --classify unit tests stay offline unless explicitly always.
     if want_llm and not os.environ.get("ROUTER_CLASSIFY_OFFLINE"):
         llm_lane = ollama_classify_lane(user_text)
-        if llm_lane in {"local", "cheap", "frontier"}:
+        if llm_lane in {"local", "haiku", "sonnet", "opus", "fable"}:
             reasons.append(f"llm-classify:{llm_lane}")
             lane = llm_lane
-            if llm_lane == "local":
-                score = min(score, 0)
-            elif llm_lane == "cheap":
-                score = 1 if score < 1 else score
-            else:
-                score = max(score, 2)
+            score = {"local": 0, "haiku": 1, "sonnet": 2, "opus": 4, "fable": 6}[llm_lane]
 
     reason = ",".join(reasons) if reasons else "default-local"
     return lane, reason, score
@@ -659,9 +715,53 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
 
 def normalize_lane(value: str) -> str:
     v = value.strip().lower()
-    if v == "cloud":
-        return "frontier"
-    return v
+    aliases = {
+        "cloud": "sonnet",
+        "frontier": "sonnet",
+        "cheap": "haiku",
+        "auto": "",
+    }
+    return aliases.get(v, v)
+
+
+def model_for_lane(lane: str) -> str:
+    return {
+        "local": Cfg.local_model,
+        "haiku": Cfg.haiku_model,
+        "sonnet": Cfg.sonnet_model,
+        "opus": Cfg.opus_model,
+        "fable": Cfg.fable_model,
+        # legacy
+        "cheap": Cfg.haiku_model,
+        "frontier": Cfg.sonnet_model,
+        "cloud": Cfg.sonnet_model,
+    }.get(lane, Cfg.sonnet_model)
+
+
+def cascade_from(lane: str) -> list[str]:
+    """Lanes to try, starting at selected tier down to local."""
+    lane = normalize_lane(lane) or "sonnet"
+    if lane not in LANE_ORDER:
+        lane = "sonnet"
+    idx = LANE_ORDER.index(lane)
+    return LANE_ORDER[idx:]
+
+
+def should_failover_status(status: int, body: bytes) -> bool:
+    if status in {404, 429, 500, 502, 503, 529}:
+        return True
+    if status == 400:
+        try:
+            err = json.loads(body)
+            msg = str((err.get("error") or {}).get("message") or "").lower()
+            typ = str((err.get("error") or {}).get("type") or "").lower()
+            if "not_found" in typ or (
+                "model" in msg and ("not found" in msg or "invalid" in msg)
+            ):
+                return True
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+    return False
 
 
 def _is_placeholder_secret(value: str) -> bool:
@@ -754,7 +854,7 @@ def inbound_bearer_token(headers: dict[str, str]) -> str:
 
 
 def cloud_auth_ready(headers: dict[str, str]) -> bool:
-    """True if cheap/frontier can call Anthropic (API key or Claude Code OAuth)."""
+    """True if hosted Claude lanes can call Anthropic (API key or Claude Code OAuth)."""
     return bool(
         cloud_api_key(headers)
         or inbound_bearer_token(headers)
@@ -764,8 +864,8 @@ def cloud_auth_ready(headers: dict[str, str]) -> bool:
 
 def decide_route(headers: dict[str, str], data: dict[str, Any]) -> tuple[str, str]:
     override = normalize_lane(headers.get("x-route") or Cfg.force or "")
-    if override in {"local", "cheap", "frontier"}:
-        if override in {"cheap", "frontier"} and not cloud_auth_ready(headers):
+    if override in {"local", "haiku", "sonnet", "opus", "fable"}:
+        if override in HOSTED_LANES and not cloud_auth_ready(headers):
             return "local", f"cloud-unavailable→local (override:{override})"
         return override, f"override:{override}"
 
@@ -775,8 +875,9 @@ def decide_route(headers: dict[str, str], data: dict[str, Any]) -> tuple[str, st
 
     user_text = last_user_text(data.get("messages") or [])
     lane, reason, _score = score_route(user_text, data)
+    lane = normalize_lane(lane) or lane
 
-    if lane in {"cheap", "frontier"} and not cloud_auth_ready(headers):
+    if lane in HOSTED_LANES and not cloud_auth_ready(headers):
         return "local", f"cloud-unavailable→local ({reason})"
 
     _SESSION_ROUTE[key] = lane
@@ -842,13 +943,18 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "proxy": "llm-router",
-                    "lanes": ["local", "cheap", "frontier"],
+                    "lanes": LANE_ORDER,
+                    "cascade": Cfg.cascade,
                     "local_upstream": Cfg.local_upstream,
                     "cloud_upstream": Cfg.cloud_upstream,
                     "local_model": Cfg.local_model,
-                    "cheap_model": Cfg.cheap_model,
-                    "frontier_model": Cfg.frontier_model,
-                    "cloud_model": Cfg.frontier_model,
+                    "haiku_model": Cfg.haiku_model,
+                    "sonnet_model": Cfg.sonnet_model,
+                    "opus_model": Cfg.opus_model,
+                    "fable_model": Cfg.fable_model,
+                    "cheap_model": Cfg.haiku_model,
+                    "frontier_model": Cfg.sonnet_model,
+                    "cloud_model": Cfg.sonnet_model,
                     "listen": f"http://{Cfg.listen_host}:{Cfg.listen_port}",
                     "cloud_key_configured": bool(cloud_api_key({})),
                     "claude_cli_oauth_configured": bool(load_claude_cli_oauth_token()),
@@ -868,13 +974,15 @@ class Handler(BaseHTTPRequestHandler):
                             "object": "model",
                             "owned_by": "router",
                             "display_name": (
-                                f"Router → {Cfg.local_model} / "
-                                f"{Cfg.cheap_model} / {Cfg.frontier_model}"
+                                f"Router → {Cfg.local_model}/{Cfg.haiku_model}/"
+                                f"{Cfg.sonnet_model}/{Cfg.opus_model}/{Cfg.fable_model}"
                             ),
                         },
                         {"id": Cfg.local_model, "object": "model", "owned_by": "ollama"},
-                        {"id": Cfg.cheap_model, "object": "model", "owned_by": "anthropic"},
-                        {"id": Cfg.frontier_model, "object": "model", "owned_by": "anthropic"},
+                        {"id": Cfg.haiku_model, "object": "model", "owned_by": "anthropic"},
+                        {"id": Cfg.sonnet_model, "object": "model", "owned_by": "anthropic"},
+                        {"id": Cfg.opus_model, "object": "model", "owned_by": "anthropic"},
+                        {"id": Cfg.fable_model, "object": "model", "owned_by": "anthropic"},
                     ],
                 },
             )
@@ -899,21 +1007,70 @@ class Handler(BaseHTTPRequestHandler):
         if Cfg.log_routes:
             sys.stderr.write(f"[llm-router] route={route} reason={reason}\n")
 
-        if route == "local":
-            self._forward(Cfg.local_upstream, rewrite_for_local(data), auth_headers_local(headers))
-            return
-
+        chain = cascade_from(route) if Cfg.cascade else [route]
+        # If no cloud auth, hosted steps collapse to local.
         if not cloud_auth_ready(headers):
+            chain = ["local"]
+            if Cfg.log_routes and route != "local":
+                sys.stderr.write("[llm-router] cascade→local reason=cloud-auth-missing\n")
+
+        last_error: bytes | None = None
+        last_status = 502
+        for i, lane in enumerate(chain):
+            if lane == "local":
+                payload = rewrite_for_local(data)
+                upstream = Cfg.local_upstream
+                auth = auth_headers_local(headers)
+            else:
+                payload = rewrite_for_hosted(data, model_for_lane(lane))
+                upstream = Cfg.cloud_upstream
+                auth = auth_headers_cloud(headers)
             if Cfg.log_routes:
-                sys.stderr.write("[llm-router] route=local reason=cloud-auth-missing-late\n")
-            self._forward(Cfg.local_upstream, rewrite_for_local(data), auth_headers_local(headers))
+                sys.stderr.write(
+                    f"[llm-router] try lane={lane} model={payload.get('model')} "
+                    f"upstream={upstream}\n"
+                )
+            status, body, content_type, exc = self._upstream_exchange(upstream, payload, auth)
+            if exc is not None:
+                last_error = json.dumps(
+                    {
+                        "type": "error",
+                        "error": {
+                            "type": "api_error",
+                            "message": f"{exc} (upstream {upstream} lane={lane})",
+                        },
+                    }
+                ).encode()
+                last_status = 502
+                if i < len(chain) - 1:
+                    if Cfg.log_routes:
+                        sys.stderr.write(
+                            f"[llm-router] failover {lane}→{chain[i+1]} reason=connect-error\n"
+                        )
+                    continue
+                self._raw(last_status, last_error, "application/json")
+                return
+            assert body is not None
+            if should_failover_status(status, body) and i < len(chain) - 1:
+                last_error = body
+                last_status = status
+                if Cfg.log_routes:
+                    sys.stderr.write(
+                        f"[llm-router] failover {lane}→{chain[i+1]} reason=http-{status}\n"
+                    )
+                continue
+            # Success (or final error with nowhere to go)
+            degraded = lane != route
+            self._write_upstream_response(status, body, content_type or "application/json", degraded, lane)
             return
 
-        model = Cfg.cheap_model if route == "cheap" else Cfg.frontier_model
-        self._forward(
-            Cfg.cloud_upstream,
-            rewrite_for_hosted(data, model),
-            auth_headers_cloud(headers),
+        self._raw(
+            last_status,
+            last_error
+            or json.dumps(
+                {"type": "error", "error": {"message": "cascade exhausted"}}
+            ).encode(),
+            "application/json",
         )
 
     def do_OPTIONS(self) -> None:
@@ -932,7 +1089,39 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _forward(self, upstream: str, data: dict[str, Any], extra_headers: dict[str, str]) -> None:
+    def _raw(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _write_upstream_response(
+        self,
+        status: int,
+        body: bytes,
+        content_type: str,
+        degraded: bool,
+        lane: str,
+    ) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        if degraded:
+            self.send_header("x-router-degraded", "true")
+            self.send_header("x-router-lane", lane)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _upstream_exchange(
+        self,
+        upstream: str,
+        data: dict[str, Any],
+        extra_headers: dict[str, str],
+    ) -> tuple[int, bytes | None, str | None, Exception | None]:
+        """POST once; return (status, body, content_type, error)."""
         self.close_connection = True
         body = json.dumps(data).encode()
         parsed = urlparse(upstream)
@@ -944,7 +1133,11 @@ class Handler(BaseHTTPRequestHandler):
             "anthropic-version": self.headers.get("anthropic-version") or "2023-06-01",
         }
         headers.update(extra_headers)
-        wants_stream = bool(data.get("stream"))
+        # Streaming cascade is complex; buffer non-stream for failover decisions.
+        data_ns = dict(data)
+        data_ns["stream"] = False
+        body = json.dumps(data_ns).encode()
+        headers["Content-Length"] = str(len(body))
         try:
             if parsed.scheme == "https":
                 conn: http.client.HTTPConnection = http.client.HTTPSConnection(host, port, timeout=600)
@@ -952,41 +1145,13 @@ class Handler(BaseHTTPRequestHandler):
                 conn = http.client.HTTPConnection(host, port, timeout=600)
             conn.request("POST", self.path, body=body, headers=headers)
             resp = conn.getresponse()
+            out = resp.read()
             content_type = resp.getheader("Content-Type") or "application/json"
-            if wants_stream:
-                self.send_response(resp.status)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Cache-Control", "no-cache")
-                self.send_header("Connection", "close")
-                self.end_headers()
-                while True:
-                    chunk = resp.read(256)
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
-            else:
-                out = resp.read()
-                self.send_response(resp.status)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(out)))
-                self.send_header("Connection", "close")
-                self.end_headers()
-                self.wfile.write(out)
+            status = resp.status
             conn.close()
+            return status, out, content_type, None
         except Exception as exc:  # noqa: BLE001
-            msg = json.dumps(
-                {
-                    "type": "error",
-                    "error": {"type": "api_error", "message": f"{exc} (upstream {upstream})"},
-                }
-            ).encode()
-            self.send_response(502)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(msg)))
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.wfile.write(msg)
+            return 502, None, None, exc
 
     def log_message(self, fmt: str, *args: object) -> None:
         sys.stderr.write("[llm-router] " + (fmt % args) + "\n")
@@ -994,17 +1159,32 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Route Claude Code across local Qwen, Haiku, and Sonnet."
+        description=(
+            "Route Claude Code across local Qwen and Claude Haiku/Sonnet/Opus/Fable "
+            "with cascade failover down to local."
+        )
     )
     parser.add_argument("--host", default=Cfg.listen_host)
     parser.add_argument("--port", type=int, default=Cfg.listen_port)
     parser.add_argument("--local-model", default=Cfg.local_model)
-    parser.add_argument("--cheap-model", default=Cfg.cheap_model)
-    parser.add_argument("--frontier-model", default=Cfg.frontier_model)
+    parser.add_argument("--haiku-model", default=Cfg.haiku_model)
+    parser.add_argument("--sonnet-model", default=Cfg.sonnet_model)
+    parser.add_argument("--opus-model", default=Cfg.opus_model)
+    parser.add_argument("--fable-model", default=Cfg.fable_model)
+    parser.add_argument(
+        "--cheap-model",
+        default=None,
+        help="Legacy alias for --haiku-model",
+    )
+    parser.add_argument(
+        "--frontier-model",
+        default=None,
+        help="Legacy alias for --sonnet-model",
+    )
     parser.add_argument(
         "--cloud-model",
         default=None,
-        help="Legacy alias for --frontier-model",
+        help="Legacy alias for --sonnet-model",
     )
     parser.add_argument("--classify", metavar="TEXT", help="Print route decision for TEXT and exit")
     args = parser.parse_args()
@@ -1012,9 +1192,13 @@ def main() -> None:
     Cfg.listen_host = args.host
     Cfg.listen_port = args.port
     Cfg.local_model = args.local_model
-    Cfg.cheap_model = args.cheap_model
-    Cfg.frontier_model = args.cloud_model or args.frontier_model
-    Cfg.cloud_model = Cfg.frontier_model
+    Cfg.haiku_model = args.cheap_model or args.haiku_model
+    Cfg.sonnet_model = args.cloud_model or args.frontier_model or args.sonnet_model
+    Cfg.opus_model = args.opus_model
+    Cfg.fable_model = args.fable_model
+    Cfg.cheap_model = Cfg.haiku_model
+    Cfg.frontier_model = Cfg.sonnet_model
+    Cfg.cloud_model = Cfg.sonnet_model
 
     if args.classify is not None:
         # Deterministic classify for tests/docs unless user forces LLM.
@@ -1028,17 +1212,22 @@ def main() -> None:
 
     print(
         f"llm-router  http://{Cfg.listen_host}:{Cfg.listen_port}  "
-        f"local={Cfg.local_model}  cheap={Cfg.cheap_model}  "
-        f"frontier={Cfg.frontier_model}@{Cfg.cloud_upstream}",
+        f"local={Cfg.local_model}  haiku={Cfg.haiku_model}  "
+        f"sonnet={Cfg.sonnet_model}  opus={Cfg.opus_model}  "
+        f"fable={Cfg.fable_model}@{Cfg.cloud_upstream}  "
+        f"cascade={'on' if Cfg.cascade else 'off'}",
         flush=True,
     )
     if cloud_api_key({}):
-        print("auth: Anthropic API key available for cheap/frontier", flush=True)
+        print("auth: Anthropic API key available for hosted lanes", flush=True)
     elif load_claude_cli_oauth_token():
-        print("auth: Claude Code CLI OAuth available for cheap/frontier (no API key needed)", flush=True)
+        print(
+            "auth: Claude Code CLI OAuth available for hosted lanes (no API key needed)",
+            flush=True,
+        )
     else:
         print(
-            "warning: no API key and no Claude Code OAuth — cheap/frontier fall back to local\n"
+            "warning: no API key and no Claude Code OAuth — hosted lanes fall back to local\n"
             "         Log in with: claude  (once), then restart llm-router",
             flush=True,
         )

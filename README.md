@@ -5,8 +5,12 @@
 | Lane | Model |
 |------|--------|
 | local | Qwen 14B on the Mac |
-| cheap | Haiku (Claude Code OAuth) |
-| frontier | Sonnet (Claude Code OAuth) |
+| haiku | Claude Haiku (alias: `cheap`) |
+| sonnet | Claude Sonnet (aliases: `frontier`, `cloud`) |
+| opus | Claude Opus |
+| fable | Claude Fable (top tier) |
+
+On model-not-found / rate-limit / upstream errors, the router **cascades down** that ladder and ultimately falls back to local (`ROUTER_CASCADE=1` by default).
 
 Optional: `--with-27b` also installs Qwen 3.8 27B as `qwen-code` for heavy local-only runs.
 
@@ -46,7 +50,7 @@ Already have Ollama? Router-only upgrade:
 
 ```bash
 claude                 # once: Claude Code CLI login (subscription)
-claude-routed          # router: local / Haiku / Sonnet
+claude-routed          # router: local → Haiku → Sonnet → Opus → Fable (+ cascade)
 ```
 
 Forced local only: `claude-local`.
@@ -66,12 +70,20 @@ Do **not** put `ANTHROPIC_BASE_URL=…` permanently in `~/.zshrc`.
 | Lane | Model | Typical asks |
 |------|--------|----------------|
 | **local** | `qwen-fast` | rename, explain, list files |
-| **cheap** | Haiku | implement / fix / add tests |
-| **frontier** | Sonnet | architecture, races, security audits |
+| **haiku** | Haiku | implement / fix / add tests |
+| **sonnet** | Sonnet | harder multi-file bugs, CI flakes (light) |
+| **opus** | Opus | security audits, incidents, races, deep digs |
+| **fable** | Fable | org-wide / longest-horizon / hardest stack |
+
+**Cascade:** selected lane → each lower hosted tier → **local** last. Disable with `ROUTER_CASCADE=0`. Failover on 404/429/5xx/529, connect errors, and model-not-found style 400s. Degraded replies include `x-router-degraded: true` and `x-router-lane: …`.
 
 Hosted lanes use **Claude Code CLI OAuth** (no `ANTHROPIC_API_KEY` required). Optional pay-as-you-go key still works if set.
 
-Scoring layers (in order): regex catalogs → informal phrase/slang normalization → structural cues (questions, imperatives, code fences) → optional **local Qwen** classify when still uncertain (`ROUTER_LLM_CLASSIFY=auto` by default; `never` to disable; `always` to force).
+Scoring layers (in order): regex catalogs → informal phrase/slang normalization → structural cues → optional **local Qwen** classify when still uncertain (`ROUTER_LLM_CLASSIFY=auto`; `never` / `always`).
+
+Score bands (offline heuristic): `≤0` local · `1` haiku · `2` sonnet · `3–4` opus · `≥5`/`fable` phrases → fable.
+
+Overrides: `x-route` / `ROUTER_FORCE` = `local|haiku|sonnet|opus|fable` (legacy `cheap`→haiku, `frontier`/`cloud`→sonnet).
 
 ```bash
 curl -s http://127.0.0.1:11437/health

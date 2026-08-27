@@ -1,20 +1,7 @@
-# Implementation session — heuristic router
+# Implementation session
 
-**Project path:** `~/Projects/local-llm-mac` → `/workspace`  
-**Started:** 2026-08-27  
-**Goal:** Three-lane `llm-router`: local (Qwen) / cheap (Haiku) / frontier (Sonnet)
+**Goal:** Five-lane `llm-router`: local / haiku / sonnet / opus / fable with cascade failover to local.
 
-| Doc | Path |
-|-----|------|
-| Spec | `docs/superpowers/specs/2026-08-27-heuristic-router-design.md` |
-| Plan | `docs/superpowers/plans/2026-08-27-heuristic-router.md` |
-| Handoff | `docs/HANDOFF.md` |
+**Done in repo:** scoring bands, cascade on 404/429/5xx/connect/model-not-found, classify fixtures, README/HANDOFF.
 
-## Run
-
-```bash
-cd ~/Projects/local-llm-mac
-bash scripts/test-router-classify.sh
-```
-
-Deferred: feature-pipeline. Out of scope: OmniRoute, multiprovider-llm.
+**Mac still needed:** `claude` login → `claude-routed` → confirm Opus/Fable model ids on the account.
