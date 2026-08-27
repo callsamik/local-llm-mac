@@ -1,7 +1,7 @@
 # Implementation session
 
-**Goal:** Five-lane `llm-router`: local / haiku / sonnet / opus / fable with cascade failover to local.
+**Goal:** Hybrid C — auto local/haiku/sonnet + effort/thinking; opus/fable opt-in only.
 
-**Done in repo:** scoring bands, cascade on 404/429/5xx/connect/model-not-found, classify fixtures, README/HANDOFF.
+**Done:** scoring, rewrite (`output_config.effort` + adaptive thinking), cascade skip disables, tests, specs.
 
-**Mac still needed:** `claude` login → `claude-routed` → confirm Opus/Fable model ids on the account.
+**Mac:** restart `llm-router`, `claude-routed`, confirm model ids / OAuth.

@@ -16,6 +16,21 @@ check() {
   printf 'ok  %s ← %s\n' "${expect}" "${text}"
 }
 
+check_meta() {
+  local text="$1" expect_route="$2" expect_effort="$3" expect_thinking="$4"
+  local got
+  got="$(python3 "${PY}" --classify "${text}")"
+  python3 -c '
+import json,sys
+d=json.loads(sys.argv[1])
+assert d["route"]==sys.argv[2], d
+assert d.get("effort")== (None if sys.argv[3]=="null" else sys.argv[3]), d
+assert d["thinking"]==sys.argv[4], d
+' "${got}" "${expect_route}" "${expect_effort}" "${expect_thinking}"
+  printf 'ok  %s effort=%s thinking=%s ← %s\n' \
+    "${expect_route}" "${expect_effort}" "${expect_thinking}" "${text}"
+}
+
 # local
 check "rename the helper and fix the typo" local
 check "list the files in this folder" local
@@ -38,23 +53,36 @@ check "wire up the webhook handler" haiku
 check "pls make a login page" haiku
 check "whip up a unit test for parseDate" haiku
 
-# sonnet / opus / fable (hard ladder)
+# hard work stays on sonnet (opus/fable are opt-in only)
 check "memory leak in the worker pool" sonnet
 check "why is this broken in ci" sonnet
 check "production is down on checkout" sonnet
-check "security audit of the auth flow" opus
-check "threat model the payment flow" opus
-check "sev-1 production outage on checkout" opus
-check "investigate why the flaky e2e breaks" opus
-check "compare trade-offs for event sourcing" opus
-check "can you dig into why payments fail randomly" opus
-check "root cause the flaky payment race condition across services" fable
-check "design the architecture for a multi-service migration" fable
-check "company-wide migration of the platform" fable
-check "use fable for this hardest problem" fable
+check "security audit of the auth flow" sonnet
+check "threat model the payment flow" sonnet
+check "sev-1 production outage on checkout" sonnet
+check "investigate why the flaky e2e breaks" sonnet
+check "compare trade-offs for event sourcing" sonnet
+check "can you dig into why payments fail randomly" sonnet
+check "root cause the flaky payment race condition across services" sonnet
+check "design the architecture for a multi-service migration" sonnet
+check "company-wide migration of the platform" sonnet
 
-# cascade helper
+# opt-in only
+check "use fable for this hardest problem" fable
+check "use opus for this security audit" opus
+
+# effort / thinking defaults
+check_meta "rename the helper and fix the typo" local null off
+check_meta "implement a login form with validation" haiku low off
+check_meta "memory leak in the worker pool" sonnet medium adaptive
+check_meta "security audit of the auth flow" sonnet high adaptive
+check_meta "company-wide migration of the platform" sonnet xhigh adaptive
+check_meta "use fable for this hardest problem" fable xhigh adaptive
+check_meta "use opus for this security audit" opus high adaptive
+
+# cascade + helpers
 python3 - "$PY" <<'PY'
+import os
 import sys
 from importlib.machinery import SourceFileLoader
 
@@ -66,11 +94,29 @@ assert m.should_failover_status(404, b"{}")
 assert m.should_failover_status(429, b"{}")
 assert m.should_failover_status(529, b"{}")
 assert not m.should_failover_status(200, b"{}")
-assert m.should_failover_status(
-    400,
-    b'{"error":{"type":"not_found_error","message":"model: claude-fable-5"}}',
+assert m.normalize_effort("extra") == "xhigh"
+assert m.effort_thinking_for("haiku", 1) == ("low", "off")
+assert m.effort_thinking_for("sonnet", 6)[0] == "xhigh"
+
+# disable skips in cascade
+m.Cfg.disable_opus = True
+assert "opus" not in m.cascade_from("fable")
+m.Cfg.disable_opus = False
+m.Cfg.disable_fable = True
+d = m.score_route("use fable please", {"messages": [{"role": "user", "content": "use fable please"}]})
+assert d.lane == "sonnet", d
+m.Cfg.disable_fable = False
+
+payload = m.rewrite_for_hosted({"messages": []}, "claude-sonnet-4-6", "high", "adaptive")
+assert payload["output_config"]["effort"] == "high"
+assert payload["thinking"]["type"] == "adaptive"
+# never disable thinking at xhigh
+payload2 = m.rewrite_for_hosted(
+    {"thinking": {"type": "disabled"}}, "claude-sonnet-4-6", "xhigh", "off"
 )
-print("ok  cascade helpers")
+assert payload2["thinking"]["type"] == "adaptive"
+
+print("ok  cascade / effort helpers")
 PY
 
 echo "all classification checks passed"

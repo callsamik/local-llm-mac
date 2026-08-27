@@ -106,10 +106,11 @@ Done.
    cd /path/to/repo
    claude-routed
 
-Lanes: local → haiku → sonnet → opus → fable (cascade down to local on errors)
+Lanes (auto): local → haiku → sonnet (+ effort/thinking)
+Opt-in only: opus / fable (“use opus”, “use fable”, x-route)
+Cascade down to local on errors (ROUTER_CASCADE=1)
 Auth: Claude Code OAuth (preferred) or API key
-Overrides: x-route: local|haiku|sonnet|opus|fable  (aliases: cheap, frontier, cloud)
-Force: ROUTER_FORCE=…  Cascade: ROUTER_CASCADE=1 (default)
+Overrides: x-route / ROUTER_FORCE · Disable: ROUTER_DISABLE_OPUS / ROUTER_DISABLE_FABLE
 
 Health: curl -s http://127.0.0.1:11437/health
 # look for cloud_auth_ready / claude_cli_oauth_configured

@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Route Anthropic /v1/messages across a Claude + local ladder.
 
-local  → Ollama qwen-fast
-haiku  → Claude Haiku (legacy alias: cheap)
-sonnet → Claude Sonnet (legacy aliases: frontier, cloud)
-opus   → Claude Opus
-fable  → Claude Fable (top tier)
+Auto lanes (default scoring):
+  local  → Ollama qwen-fast
+  haiku  → Claude Haiku (alias: cheap)
+  sonnet → Claude Sonnet (aliases: frontier, cloud)
+
+Opt-in only (explicit request):
+  opus   → Claude Opus
+  fable  → Claude Fable
+
+Also sets effort (low|medium|high|xhigh|max) and thinking (off|adaptive)
+for hosted lanes. User "extra" maps to API xhigh.
 
 On model-not-found / rate-limit / upstream errors, cascade down the ladder
 and ultimately fall back to local Qwen.
@@ -23,9 +29,17 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class Cfg:
@@ -57,14 +71,28 @@ class Cfg:
     llm_classify = os.environ.get("ROUTER_LLM_CLASSIFY", "auto").strip().lower()
     # Cascade on upstream failure (model missing / 429 / 5xx / connect)
     cascade = os.environ.get("ROUTER_CASCADE", "1") != "0"
+    # Hard-block opt-in tiers (even explicit request → sonnet)
+    disable_opus = _env_flag("ROUTER_DISABLE_OPUS", False)
+    disable_fable = _env_flag("ROUTER_DISABLE_FABLE", False)
+
+
+@dataclass
+class RouteDecision:
+    lane: str
+    reason: str
+    score: int
+    effort: str | None = None  # low|medium|high|xhigh|max
+    thinking: str = "off"  # off|adaptive
 
 
 # Sticky route per conversation fingerprint so tool loops stay on one backend.
-_SESSION_ROUTE: dict[str, str] = {}
+_SESSION_ROUTE: dict[str, RouteDecision] = {}
 
 # Highest → lowest. Failover walks downward; local is last resort.
 LANE_ORDER = ["fable", "opus", "sonnet", "haiku", "local"]
+AUTO_LANES = {"local", "haiku", "sonnet"}
 HOSTED_LANES = {"haiku", "sonnet", "opus", "fable"}
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 HARD_PATTERNS = [
     # Architecture / system design
@@ -329,19 +357,34 @@ EASY_PATTERNS = [
 
 
 
-# Informal / paraphrased phrases (substring match on normalized text).
-OPUS_PHRASES = [
+# Difficulty cues that raise score (stay on auto ladder → sonnet + higher effort).
+OPUS_HARD_PHRASES = [
     "multi service migration", "multiservice migration", "entire codebase",
     "whole codebase", "cross cutting", "cross-cutting", "distributed systems",
     "threat model", "security audit", "production outage", "root cause analysis",
     "deep dive into", "formal verification", "consensus",
 ]
 
-FABLE_PHRASES = [
-    "longest horizon", "maximum reasoning", "mythos", "use fable",
+FABLE_HARD_PHRASES = [
+    "longest horizon", "maximum reasoning", "mythos",
     "hardest problem", "mission critical redesign", "company wide migration",
     "company-wide migration", "org wide architecture", "org-wide architecture",
 ]
+
+# Explicit opt-in only — never inferred from difficulty alone.
+OPT_IN_OPUS = [
+    "use opus", "with opus", "ask opus", "via opus", "on opus",
+    "force opus", "route opus", "switch to opus",
+]
+
+OPT_IN_FABLE = [
+    "use fable", "with fable", "ask fable", "via fable", "on fable",
+    "force fable", "route fable", "switch to fable",
+]
+
+# Back-compat names used elsewhere in this file historically.
+OPUS_PHRASES = OPUS_HARD_PHRASES
+FABLE_PHRASES = FABLE_HARD_PHRASES
 
 HARD_PHRASES = [
     "figure out why", "dig into why", "dig into how", "get to the bottom",
@@ -478,12 +521,11 @@ def ollama_classify_lane(user_text: str) -> str | None:
                 "role": "system",
                 "content": (
                     "Classify the coding task difficulty for a router. "
-                    "Reply with exactly one word: local, haiku, sonnet, opus, or fable. "
+                    "Reply with exactly one word: local, haiku, or sonnet. "
                     "local=lookup/rename/typo/explain. "
                     "haiku=normal implement/fix/test/refactor. "
-                    "sonnet=harder multi-file bugs and non-trivial coding. "
-                    "opus=architecture/security/incident/race/deep reasoning. "
-                    "fable=extreme long-horizon / org-wide hardest work."
+                    "sonnet=harder bugs, architecture, security, incidents, races. "
+                    "Never reply opus or fable."
                 ),
             },
             {"role": "user", "content": user_text[:4000]},
@@ -564,10 +606,10 @@ def session_key(data: dict[str, Any]) -> str:
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
-def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
-    """Return (lane, reason, score).
+def score_route(user_text: str, data: dict[str, Any]) -> RouteDecision:
+    """Score into auto lanes (local/haiku/sonnet) + effort/thinking.
 
-    Layers: regex catalogs → informal phrases → structural cues → optional local LLM.
+    Opus/fable only when explicit opt-in phrases are present (and not disabled).
     """
     score = 0
     reasons: list[str] = []
@@ -575,7 +617,7 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
     norm = normalize_prompt(user_text)
 
     if not user_text:
-        return "local", "empty-user-sticky-candidate", 0
+        return RouteDecision("local", "empty-user-sticky-candidate", 0, None, "off")
 
     hard_hit = False
     for pat in HARD_PATTERNS:
@@ -649,29 +691,32 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
         except (TypeError, ValueError):
             pass
 
-    if re.search(r"reasoning[_\s-]?effort\s*[:=]\s*(high|xhigh)", lower):
+    if re.search(r"reasoning[_\s-]?effort\s*[:=]\s*(high|xhigh|extra|max)", lower):
         score += 2
         reasons.append("effort-high")
 
-    opus_hit = bool(phrase_hits(norm, OPUS_PHRASES, "opus-phrase"))
-    fable_hit = bool(phrase_hits(norm, FABLE_PHRASES, "fable-phrase"))
-    if opus_hit:
-        reasons.extend(phrase_hits(norm, OPUS_PHRASES, "opus-phrase"))
+    opus_hard = phrase_hits(norm, OPUS_HARD_PHRASES, "opus-hard")
+    fable_hard = phrase_hits(norm, FABLE_HARD_PHRASES, "fable-hard")
+    if opus_hard:
+        reasons.extend(opus_hard)
         score = max(score, 4)
-    if fable_hit:
-        reasons.extend(phrase_hits(norm, FABLE_PHRASES, "fable-phrase"))
+        hard_hit = True
+    if fable_hard:
+        reasons.extend(fable_hard)
         score = max(score, 6)
+        hard_hit = True
 
-    if hard_hit or opus_hit or fable_hit:
-        if fable_hit or score >= 6:
-            lane = "fable"
-            score = max(score, 6)
-        elif opus_hit or score >= 4:
-            lane = "opus"
-            score = max(score, 4)
-        else:
-            lane = "sonnet"
-            score = max(score, 2)
+    opt_opus = phrase_hits(norm, OPT_IN_OPUS, "opt-in-opus")
+    opt_fable = phrase_hits(norm, OPT_IN_FABLE, "opt-in-fable")
+    if opt_opus:
+        reasons.extend(opt_opus)
+    if opt_fable:
+        reasons.extend(opt_fable)
+
+    # Auto ladder: local / haiku / sonnet only.
+    if hard_hit:
+        lane = "sonnet"
+        score = max(score, 2)
         confident = True
     elif medium_hit:
         lane = "haiku"
@@ -682,35 +727,140 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
         confident = True
     elif score <= 0:
         lane = "local"
-        confident = False  # no catalog hit — ambiguous
+        confident = False
     elif score == 1:
         lane = "haiku"
         confident = True
-    elif score == 2:
-        lane = "sonnet"
-        confident = True
-    elif score <= 4:
-        lane = "opus"
-        confident = True
     else:
-        lane = "fable"
+        lane = "sonnet"
+        score = max(score, 2)
         confident = True
 
-    # Optional local LLM tie-break for paraphrases regex/phrases missed.
+    # Optional local LLM tie-break — clamp to auto lanes.
     want_llm = Cfg.llm_classify in {"always", "1", "true", "yes", "on"} or (
         Cfg.llm_classify in {"auto", ""} and not confident
     )
-    # --classify unit tests stay offline unless explicitly always.
     if want_llm and not os.environ.get("ROUTER_CLASSIFY_OFFLINE"):
         llm_lane = ollama_classify_lane(user_text)
-        if llm_lane in {"local", "haiku", "sonnet", "opus", "fable"}:
+        if llm_lane in AUTO_LANES:
             reasons.append(f"llm-classify:{llm_lane}")
             lane = llm_lane
-            score = {"local": 0, "haiku": 1, "sonnet": 2, "opus": 4, "fable": 6}[llm_lane]
+            score = {"local": 0, "haiku": 1, "sonnet": 2}[llm_lane]
+        elif llm_lane in {"opus", "fable"}:
+            reasons.append(f"llm-classify-clamped:{llm_lane}→sonnet")
+            lane = "sonnet"
+            score = max(score, 4 if llm_lane == "opus" else 6)
+
+    # Explicit opt-in may raise to opus/fable (unless hard-disabled).
+    if opt_fable:
+        lane, reasons = apply_opt_in_lane("fable", lane, reasons)
+    elif opt_opus:
+        lane, reasons = apply_opt_in_lane("opus", lane, reasons)
+
+    asked_max, asked_xhigh = effort_ask_flags(norm, lower)
+    effort, thinking_mode = effort_thinking_for(lane, score, asked_max, asked_xhigh)
+    # Client payload may already set these; classify still reports scorer defaults.
+    effort, thinking_mode = merge_client_effort_thinking(data, effort, thinking_mode)
 
     reason = ",".join(reasons) if reasons else "default-local"
-    return lane, reason, score
+    return RouteDecision(lane, reason, score, effort, thinking_mode)
 
+
+def apply_opt_in_lane(
+    wanted: str, current: str, reasons: list[str]
+) -> tuple[str, list[str]]:
+    if wanted == "opus" and Cfg.disable_opus:
+        reasons.append("opus-disabled→sonnet")
+        return "sonnet", reasons
+    if wanted == "fable" and Cfg.disable_fable:
+        reasons.append("fable-disabled→sonnet")
+        return "sonnet", reasons
+    reasons.append(f"opt-in→{wanted}")
+    return wanted, reasons
+
+
+def effort_ask_flags(norm: str, lower: str) -> tuple[bool, bool]:
+    asked_max = bool(
+        re.search(r"\b(effort\s*[:=]?\s*max|maximum\s+effort|max\s+effort)\b", lower)
+        or "effort max" in norm
+    )
+    asked_xhigh = bool(
+        re.search(
+            r"\b(effort\s*[:=]?\s*(xhigh|extra)|extra\s+effort|xhigh\s+effort)\b",
+            lower,
+        )
+        or "effort extra" in norm
+        or "effort xhigh" in norm
+    )
+    return asked_max, asked_xhigh
+
+
+def normalize_effort(value: str) -> str | None:
+    v = value.strip().lower()
+    aliases = {
+        "extra": "xhigh",
+        "x-high": "xhigh",
+        "med": "medium",
+        "mid": "medium",
+    }
+    v = aliases.get(v, v)
+    return v if v in EFFORT_LEVELS else None
+
+
+def effort_thinking_for(
+    lane: str, score: int, asked_max: bool = False, asked_xhigh: bool = False
+) -> tuple[str | None, str]:
+    """Defaults for a lane given severity score and optional ask flags."""
+    if lane == "local":
+        return None, "off"
+    if lane == "haiku":
+        return "low", "off"
+    if lane == "sonnet":
+        if score >= 5 or asked_max:
+            return ("max" if asked_max else "xhigh"), "adaptive"
+        if score >= 3 or asked_xhigh:
+            return "xhigh" if asked_xhigh and score < 5 else "high", "adaptive"
+        if asked_xhigh:
+            return "xhigh", "adaptive"
+        return "medium", "adaptive"
+    if lane == "opus":
+        if asked_max:
+            return "max", "adaptive"
+        if asked_xhigh:
+            return "xhigh", "adaptive"
+        return "high", "adaptive"
+    if lane == "fable":
+        if asked_max:
+            return "max", "adaptive"
+        return "xhigh", "adaptive"
+    return "medium", "adaptive"
+
+
+def merge_client_effort_thinking(
+    data: dict[str, Any], effort: str | None, thinking_mode: str
+) -> tuple[str | None, str]:
+    """Honor client output_config.effort / thinking when already set."""
+    oc = data.get("output_config")
+    if isinstance(oc, dict) and oc.get("effort"):
+        norm = normalize_effort(str(oc.get("effort")))
+        if norm:
+            effort = norm
+    th = data.get("thinking")
+    if isinstance(th, dict):
+        ttype = str(th.get("type") or "").lower()
+        if ttype == "disabled":
+            thinking_mode = "off"
+        elif ttype in {"enabled", "adaptive"}:
+            thinking_mode = "adaptive"
+    # API rejects thinking disabled at xhigh/max.
+    if effort in {"xhigh", "max"} and thinking_mode == "off":
+        thinking_mode = "adaptive"
+    return effort, thinking_mode
+
+
+def defaults_for_failover_lane(lane: str, severity: int) -> tuple[str | None, str]:
+    """Recompute effort/thinking when cascading to a lower lane."""
+    return effort_thinking_for(lane, severity if lane == "sonnet" else min(severity, 2))
 
 
 def normalize_lane(value: str) -> str:
@@ -738,13 +888,26 @@ def model_for_lane(lane: str) -> str:
     }.get(lane, Cfg.sonnet_model)
 
 
+def lane_allowed(lane: str) -> bool:
+    if lane == "opus" and Cfg.disable_opus:
+        return False
+    if lane == "fable" and Cfg.disable_fable:
+        return False
+    return True
+
+
 def cascade_from(lane: str) -> list[str]:
-    """Lanes to try, starting at selected tier down to local."""
+    """Lanes to try, starting at selected tier down to local (skip disabled)."""
     lane = normalize_lane(lane) or "sonnet"
     if lane not in LANE_ORDER:
         lane = "sonnet"
     idx = LANE_ORDER.index(lane)
-    return LANE_ORDER[idx:]
+    out: list[str] = []
+    for candidate in LANE_ORDER[idx:]:
+        if not lane_allowed(candidate):
+            continue
+        out.append(candidate)
+    return out or ["local"]
 
 
 def should_failover_status(status: int, body: bytes) -> bool:
@@ -862,28 +1025,61 @@ def cloud_auth_ready(headers: dict[str, str]) -> bool:
     )
 
 
-def decide_route(headers: dict[str, str], data: dict[str, Any]) -> tuple[str, str]:
+def decide_route(headers: dict[str, str], data: dict[str, Any]) -> RouteDecision:
     override = normalize_lane(headers.get("x-route") or Cfg.force or "")
     if override in {"local", "haiku", "sonnet", "opus", "fable"}:
+        if not lane_allowed(override):
+            fallback = "sonnet"
+            effort, thinking = effort_thinking_for(fallback, 4)
+            effort, thinking = merge_client_effort_thinking(data, effort, thinking)
+            return RouteDecision(
+                fallback,
+                f"{override}-disabled→{fallback}",
+                4,
+                effort,
+                thinking,
+            )
         if override in HOSTED_LANES and not cloud_auth_ready(headers):
-            return "local", f"cloud-unavailable→local (override:{override})"
-        return override, f"override:{override}"
+            return RouteDecision(
+                "local",
+                f"cloud-unavailable→local (override:{override})",
+                0,
+                None,
+                "off",
+            )
+        score = {"local": 0, "haiku": 1, "sonnet": 2, "opus": 4, "fable": 6}[override]
+        effort, thinking = effort_thinking_for(override, score)
+        effort, thinking = merge_client_effort_thinking(data, effort, thinking)
+        return RouteDecision(override, f"override:{override}", score, effort, thinking)
 
     key = session_key(data)
     if key in _SESSION_ROUTE:
-        return _SESSION_ROUTE[key], f"sticky:{_SESSION_ROUTE[key]}"
+        sticky = _SESSION_ROUTE[key]
+        return RouteDecision(
+            sticky.lane,
+            f"sticky:{sticky.lane}",
+            sticky.score,
+            sticky.effort,
+            sticky.thinking,
+        )
 
     user_text = last_user_text(data.get("messages") or [])
-    lane, reason, _score = score_route(user_text, data)
-    lane = normalize_lane(lane) or lane
+    decision = score_route(user_text, data)
+    decision.lane = normalize_lane(decision.lane) or decision.lane
 
-    if lane in HOSTED_LANES and not cloud_auth_ready(headers):
-        return "local", f"cloud-unavailable→local ({reason})"
+    if decision.lane in HOSTED_LANES and not cloud_auth_ready(headers):
+        return RouteDecision(
+            "local",
+            f"cloud-unavailable→local ({decision.reason})",
+            decision.score,
+            None,
+            "off",
+        )
 
-    _SESSION_ROUTE[key] = lane
+    _SESSION_ROUTE[key] = decision
     if len(_SESSION_ROUTE) > 256:
         _SESSION_ROUTE.pop(next(iter(_SESSION_ROUTE)))
-    return lane, reason
+    return decision
 
 
 def rewrite_for_local(data: dict[str, Any]) -> dict[str, Any]:
@@ -892,12 +1088,45 @@ def rewrite_for_local(data: dict[str, Any]) -> dict[str, Any]:
     thinking = out.get("thinking")
     if isinstance(thinking, dict):
         out["thinking"] = {"type": "disabled"}
+    # Local Ollama path does not use Anthropic effort.
+    if "output_config" in out:
+        oc = dict(out["output_config"]) if isinstance(out["output_config"], dict) else {}
+        oc.pop("effort", None)
+        if oc:
+            out["output_config"] = oc
+        else:
+            out.pop("output_config", None)
     return out
 
 
-def rewrite_for_hosted(data: dict[str, Any], model: str) -> dict[str, Any]:
+def rewrite_for_hosted(
+    data: dict[str, Any],
+    model: str,
+    effort: str | None = None,
+    thinking_mode: str = "adaptive",
+) -> dict[str, Any]:
     out = dict(data)
     out["model"] = model
+    effort, thinking_mode = merge_client_effort_thinking(out, effort, thinking_mode)
+
+    if effort:
+        oc = dict(out["output_config"]) if isinstance(out.get("output_config"), dict) else {}
+        if "effort" not in oc:
+            oc["effort"] = effort
+        out["output_config"] = oc
+
+    existing = out.get("thinking")
+    if not (isinstance(existing, dict) and existing.get("type")):
+        if thinking_mode == "off":
+            out["thinking"] = {"type": "disabled"}
+        else:
+            out["thinking"] = {"type": "adaptive"}
+    elif (
+        isinstance(existing, dict)
+        and str(existing.get("type")).lower() == "disabled"
+        and effort in {"xhigh", "max"}
+    ):
+        out["thinking"] = {"type": "adaptive"}
     return out
 
 
@@ -944,7 +1173,10 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "proxy": "llm-router",
                     "lanes": LANE_ORDER,
+                    "auto_lanes": sorted(AUTO_LANES),
                     "cascade": Cfg.cascade,
+                    "disable_opus": Cfg.disable_opus,
+                    "disable_fable": Cfg.disable_fable,
                     "local_upstream": Cfg.local_upstream,
                     "cloud_upstream": Cfg.cloud_upstream,
                     "local_model": Cfg.local_model,
@@ -1003,9 +1235,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         headers = {k.lower(): v for k, v in self.headers.items()}
-        route, reason = decide_route(headers, data)
+        decision = decide_route(headers, data)
+        route = decision.lane
         if Cfg.log_routes:
-            sys.stderr.write(f"[llm-router] route={route} reason={reason}\n")
+            sys.stderr.write(
+                f"[llm-router] route={route} effort={decision.effort} "
+                f"thinking={decision.thinking} reason={decision.reason}\n"
+            )
 
         chain = cascade_from(route) if Cfg.cascade else [route]
         # If no cloud auth, hosted steps collapse to local.
@@ -1022,13 +1258,21 @@ class Handler(BaseHTTPRequestHandler):
                 upstream = Cfg.local_upstream
                 auth = auth_headers_local(headers)
             else:
-                payload = rewrite_for_hosted(data, model_for_lane(lane))
+                effort, thinking = defaults_for_failover_lane(lane, decision.score)
+                if lane == decision.lane:
+                    effort, thinking = decision.effort, decision.thinking
+                payload = rewrite_for_hosted(
+                    data, model_for_lane(lane), effort, thinking
+                )
                 upstream = Cfg.cloud_upstream
                 auth = auth_headers_cloud(headers)
             if Cfg.log_routes:
+                oc = payload.get("output_config") if isinstance(payload, dict) else None
+                eff = oc.get("effort") if isinstance(oc, dict) else None
+                th = (payload.get("thinking") or {}).get("type") if isinstance(payload.get("thinking"), dict) else None
                 sys.stderr.write(
                     f"[llm-router] try lane={lane} model={payload.get('model')} "
-                    f"upstream={upstream}\n"
+                    f"effort={eff} thinking={th} upstream={upstream}\n"
                 )
             status, body, content_type, exc = self._upstream_exchange(upstream, payload, auth)
             if exc is not None:
@@ -1204,10 +1448,20 @@ def main() -> None:
         # Deterministic classify for tests/docs unless user forces LLM.
         if Cfg.llm_classify in {"auto", ""}:
             os.environ["ROUTER_CLASSIFY_OFFLINE"] = "1"
-        route, reason, score = score_route(
+        decision = score_route(
             args.classify, {"messages": [{"role": "user", "content": args.classify}]}
         )
-        print(json.dumps({"route": route, "reason": reason, "score": score}))
+        print(
+            json.dumps(
+                {
+                    "route": decision.lane,
+                    "effort": decision.effort,
+                    "thinking": decision.thinking,
+                    "reason": decision.reason,
+                    "score": decision.score,
+                }
+            )
+        )
         return
 
     print(

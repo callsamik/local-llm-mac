@@ -70,18 +70,22 @@ Do **not** put `ANTHROPIC_BASE_URL=…` permanently in `~/.zshrc`.
 | Lane | Model | Typical asks |
 |------|--------|----------------|
 | **local** | `qwen-fast` | rename, explain, list files |
-| **haiku** | Haiku | implement / fix / add tests |
-| **sonnet** | Sonnet | harder multi-file bugs, CI flakes (light) |
-| **opus** | Opus | security audits, incidents, races, deep digs |
-| **fable** | Fable | org-wide / longest-horizon / hardest stack |
+| **haiku** | Haiku | implement / fix / add tests · effort `low` · thinking off |
+| **sonnet** | Sonnet | harder bugs → org-wide hard · effort `medium`/`high`/`xhigh` · thinking on |
+| **opus** | Opus | **opt-in only** (“use opus”, `x-route: opus`) |
+| **fable** | Fable | **opt-in only** (“use fable”, `x-route: fable`) |
 
-**Cascade:** selected lane → each lower hosted tier → **local** last. Disable with `ROUTER_CASCADE=0`. Failover on 404/429/5xx/529, connect errors, and model-not-found style 400s. Degraded replies include `x-router-degraded: true` and `x-router-lane: …`.
+Auto scoring never picks opus/fable; hard prompts stay on **sonnet** with higher effort. Hard-disable even opt-in with `ROUTER_DISABLE_OPUS=1` / `ROUTER_DISABLE_FABLE=1`.
 
-Hosted lanes use **Claude Code CLI OAuth** (no `ANTHROPIC_API_KEY` required). Optional pay-as-you-go key still works if set.
+**Effort** (`low|medium|high|xhigh|max`; “extra” → `xhigh`) and **thinking** (`off` / adaptive `on`) are set on hosted requests via `output_config.effort` + `thinking`. Client values win when already present. Thinking is never left off at `xhigh`/`max`.
 
-Scoring layers (in order): regex catalogs → informal phrase/slang normalization → structural cues → optional **local Qwen** classify when still uncertain (`ROUTER_LLM_CLASSIFY=auto`; `never` / `always`).
+**Cascade:** selected lane → lower tiers → **local** last (`ROUTER_CASCADE=1`). Disabled opus/fable are skipped.
 
-Score bands (offline heuristic): `≤0` local · `1` haiku · `2` sonnet · `3–4` opus · `≥5`/`fable` phrases → fable.
+Model **versions** stay env-pinned (`ROUTER_HAIKU_MODEL`, `ROUTER_SONNET_MODEL`, `ROUTER_OPUS_MODEL`, `ROUTER_FABLE_MODEL`).
+
+Hosted lanes use **Claude Code CLI OAuth** (no `ANTHROPIC_API_KEY` required).
+
+Scoring layers: regex → informal phrases → structural cues → optional local Qwen classify (`ROUTER_LLM_CLASSIFY=auto`).
 
 Overrides: `x-route` / `ROUTER_FORCE` = `local|haiku|sonnet|opus|fable` (legacy `cheap`→haiku, `frontier`/`cloud`→sonnet).
 
@@ -90,7 +94,7 @@ curl -s http://127.0.0.1:11437/health
 ./scripts/test-router-classify.sh
 ```
 
-Design: [`docs/superpowers/specs/2026-08-27-heuristic-router-design.md`](./docs/superpowers/specs/2026-08-27-heuristic-router-design.md).
+Design: [`docs/superpowers/specs/2026-08-27-effort-thinking-optin-design.md`](./docs/superpowers/specs/2026-08-27-effort-thinking-optin-design.md).
 
 ## Claude Desktop app
 
