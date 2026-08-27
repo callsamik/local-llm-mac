@@ -40,6 +40,8 @@ class Cfg:
     listen_port = int(os.environ.get("ROUTER_PORT", "11437"))
     force = os.environ.get("ROUTER_FORCE", "").strip().lower()
     log_routes = os.environ.get("ROUTER_LOG", "1") != "0"
+    # auto = local LLM only when heuristic is uncertain; always|never also supported
+    llm_classify = os.environ.get("ROUTER_LLM_CLASSIFY", "auto").strip().lower()
 
 
 # Sticky route per conversation fingerprint so tool loops stay on one backend.
@@ -308,6 +310,183 @@ EASY_PATTERNS = [
 
 
 
+# Informal / paraphrased phrases (substring match on normalized text).
+HARD_PHRASES = [
+    "figure out why", "dig into why", "dig into how", "get to the bottom",
+    "whats going wrong", "what's going wrong", "what is going wrong",
+    "keeps failing intermittently", "fails randomly", "only fails sometimes",
+    "make it scale", "needs to scale", "under load", "p99 latency",
+    "security review", "lock down auth", "is this secure", "can this be exploited",
+    "redesign the system", "rethink the architecture", "split into services",
+    "data consistency", "eventual consistency", "exactly once", "at least once",
+    "production is down", "site is down", "customers are blocked", "urgent outage",
+    "racey", "heisenbug", "flakes in ci", "flake in ci", "ci is flaky",
+    "memory keeps growing", "leaking memory", "oom killer",
+    "tradeoffs between", "trade offs between", "pros and cons of adopting",
+]
+
+MEDIUM_PHRASES = [
+    "can you add", "could you add", "please add", "pls add",
+    "can you make", "could you make", "please make", "pls make",
+    "can you fix", "could you fix", "please fix", "pls fix",
+    "can you write", "could you write", "please write",
+    "can you implement", "could you implement", "please implement",
+    "whip up", "knock out a", "put together a", "throw together",
+    "hook this up", "hook it up", "plug this in", "plug it in",
+    "make a page", "make a form", "make a component", "make an endpoint",
+    "make a test", "add tests for", "cover this with tests",
+    "ship a", "land a pr for", "open a pr for",
+    "update the logic", "tweak the behavior", "adjust the handler",
+    "get this working", "make it work", "make this work",
+    "drop in a", "slot in a",
+]
+
+EASY_PHRASES = [
+    "what does this do", "whats this", "what's this", "what is this",
+    "where does this live", "where is this defined", "point me to",
+    "just wondering", "quick question", "one liner", "one-liner",
+    "remind me", "refresh my memory", "in plain english", "in plain english",
+    "too long didnt read", "too long didn't read",
+    "say hi", "you there", "are you there",
+    "fix spelling", "spelling mistake", "naming nit", "nit:",
+]
+
+
+def normalize_prompt(text: str) -> str:
+    """Lowercase, expand light slang, collapse punctuation for phrase matching."""
+    t = text.lower()
+    replacements = {
+        "what's": "what is",
+        "whats": "what is",
+        "where's": "where is",
+        "wheres": "where is",
+        "how's": "how is",
+        "hows": "how is",
+        "can't": "cannot",
+        "wont": "will not",
+        "won't": "will not",
+        " i'm ": " i am ",
+        " pls ": " please ",
+        " plz ": " please ",
+        " u ": " you ",
+        " ur ": " your ",
+        " n ": " and ",
+        " w/ ": " with ",
+        " w/o ": " without ",
+    }
+    for a, b in replacements.items():
+        t = t.replace(a, b)
+    t = re.sub(r"[^\w\s.+#-]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def structural_signals(user_text: str, norm: str) -> tuple[int, list[str], bool, bool, bool]:
+    """Return (score_delta, reasons, hardish, mediumish, easyish) from shape of the prompt."""
+    delta = 0
+    reasons: list[str] = []
+    hardish = mediumish = easyish = False
+
+    # Code fences / many paths → coding work (usually cheap unless also hard words).
+    fence_count = user_text.count("```")
+    path_hits = len(re.findall(r"[\w.-]+/(?:[\w.-]+/)+[\w.-]+", user_text))
+    if fence_count >= 2 or path_hits >= 3:
+        mediumish = True
+        delta += 1
+        reasons.append("struct:code-or-paths")
+
+    # Short interrogative lookups.
+    if re.match(r"^(what|where|which|who|whom)\b", norm) and len(norm.split()) <= 14:
+        easyish = True
+        delta -= 1
+        reasons.append("struct:short-wh-question")
+
+    # "why/how is this broken" without needing exact hard regex.
+    if re.search(r"\b(why|how)\b.+\b(break|broke|broken|fail|fails|failing|wrong|bug)\b", norm):
+        hardish = True
+        delta += 2
+        reasons.append("struct:why-how-failure")
+
+    # Imperative coding without polite fluff.
+    if re.match(
+        r"^(add|fix|implement|create|write|update|refactor|wire|build|patch|remove|delete|rename)\b",
+        norm,
+    ):
+        if re.match(r"^(rename|remove|delete)\b", norm) and re.search(
+            r"\b(typo|comment|log|print|whitespace|nit)\b", norm
+        ):
+            easyish = True
+            reasons.append("struct:trivial-imperative")
+        elif re.match(r"^(rename)\b", norm) and len(norm.split()) <= 10:
+            easyish = True
+            reasons.append("struct:short-rename")
+        else:
+            mediumish = True
+            delta += 1
+            reasons.append("struct:coding-imperative")
+
+    return delta, reasons, hardish, mediumish, easyish
+
+
+def phrase_hits(norm: str, phrases: list[str], tag: str) -> list[str]:
+    return [f"{tag}:{p}" for p in phrases if p in norm]
+
+
+def ollama_classify_lane(user_text: str) -> str | None:
+    """Ask local Ollama for a one-word lane when heuristics are uncertain."""
+    if Cfg.llm_classify in {"0", "never", "off", "false", "no"}:
+        return None
+    payload = {
+        "model": Cfg.local_model,
+        "stream": False,
+        "think": False,
+        "options": {"temperature": 0, "num_predict": 8},
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Classify the coding task difficulty for a router. "
+                    "Reply with exactly one word: local, cheap, or frontier. "
+                    "local=lookup/rename/typo/explain. "
+                    "cheap=normal implement/fix/test/refactor. "
+                    "frontier=architecture/security/incident/race/deep reasoning."
+                ),
+            },
+            {"role": "user", "content": user_text[:4000]},
+        ],
+    }
+    try:
+        parsed = urlparse(Cfg.local_upstream)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 11434
+        body = json.dumps(payload).encode()
+        conn = http.client.HTTPConnection(host, port, timeout=8)
+        conn.request(
+            "POST",
+            "/api/chat",
+            body=body,
+            headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
+        )
+        resp = conn.getresponse()
+        raw = resp.read()
+        conn.close()
+        if resp.status >= 400:
+            return None
+        data = json.loads(raw)
+        content = ""
+        msg = data.get("message") or {}
+        if isinstance(msg, dict):
+            content = str(msg.get("content") or "")
+        content = content.strip().lower()
+        for lane in ("frontier", "cheap", "local"):
+            if re.search(rf"\b{lane}\b", content):
+                return lane
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+
 def last_user_text(messages: list[Any]) -> str:
     text_parts: list[str] = []
     for msg in reversed(messages or []):
@@ -347,14 +526,14 @@ def session_key(data: dict[str, Any]) -> str:
 
 
 def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
-    """Return (lane, reason, score). <=0 local, 1 cheap, >=2 frontier.
+    """Return (lane, reason, score).
 
-    Hard matches always win (frontier). Medium wins over easy when no hard hit.
-    Easy deductions are capped so they cannot erase a medium signal alone.
+    Layers: regex catalogs → informal phrases → structural cues → optional local LLM.
     """
     score = 0
     reasons: list[str] = []
     lower = user_text.lower()
+    norm = normalize_prompt(user_text)
 
     if not user_text:
         return "local", "empty-user-sticky-candidate", 0
@@ -382,8 +561,33 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
         if re.search(pat, lower, re.I):
             easy_hits += 1
             reasons.append(f"easy:{pat}")
-    # Cap easy pull-down so "simple implement X" still lands cheap.
     score -= min(easy_hits, 2)
+
+    hard_phrases = phrase_hits(norm, HARD_PHRASES, "hard-phrase")
+    if hard_phrases:
+        hard_hit = True
+        score += 2
+        reasons.extend(hard_phrases)
+
+    medium_phrases = phrase_hits(norm, MEDIUM_PHRASES, "medium-phrase")
+    if medium_phrases:
+        medium_hit = True
+        score += 1
+        reasons.extend(medium_phrases)
+
+    easy_phrases = phrase_hits(norm, EASY_PHRASES, "easy-phrase")
+    if easy_phrases:
+        easy_hits += len(easy_phrases)
+        score -= min(len(easy_phrases), 1)
+        reasons.extend(easy_phrases)
+
+    delta, struct_reasons, hardish, mediumish, easyish = structural_signals(user_text, norm)
+    score += delta
+    reasons.extend(struct_reasons)
+    hard_hit = hard_hit or hardish
+    medium_hit = medium_hit or mediumish
+    if easyish:
+        easy_hits += 1
 
     if len(user_text) > 6000:
         score += 2
@@ -410,22 +614,47 @@ def score_route(user_text: str, data: dict[str, Any]) -> tuple[str, str, int]:
         score += 2
         reasons.append("effort-high")
 
-    # Decisive category signals (foolproof overrides on raw arithmetic).
     if hard_hit:
         lane = "frontier"
         score = max(score, 2)
+        confident = True
     elif medium_hit:
         lane = "cheap"
         score = max(score, 1)
+        confident = True
+    elif easy_hits > 0 and score <= 0:
+        lane = "local"
+        confident = True
     elif score <= 0:
         lane = "local"
+        confident = False  # no catalog hit — ambiguous
     elif score == 1:
         lane = "cheap"
+        confident = True
     else:
         lane = "frontier"
+        confident = True
+
+    # Optional local LLM tie-break for paraphrases regex/phrases missed.
+    want_llm = Cfg.llm_classify in {"always", "1", "true", "yes", "on"} or (
+        Cfg.llm_classify in {"auto", ""} and not confident
+    )
+    # --classify unit tests stay offline unless explicitly always.
+    if want_llm and not os.environ.get("ROUTER_CLASSIFY_OFFLINE"):
+        llm_lane = ollama_classify_lane(user_text)
+        if llm_lane in {"local", "cheap", "frontier"}:
+            reasons.append(f"llm-classify:{llm_lane}")
+            lane = llm_lane
+            if llm_lane == "local":
+                score = min(score, 0)
+            elif llm_lane == "cheap":
+                score = 1 if score < 1 else score
+            else:
+                score = max(score, 2)
 
     reason = ",".join(reasons) if reasons else "default-local"
     return lane, reason, score
+
 
 
 def normalize_lane(value: str) -> str:
@@ -624,6 +853,7 @@ class Handler(BaseHTTPRequestHandler):
                     "cloud_key_configured": bool(cloud_api_key({})),
                     "claude_cli_oauth_configured": bool(load_claude_cli_oauth_token()),
                     "cloud_auth_ready": cloud_auth_ready({}),
+                    "llm_classify": Cfg.llm_classify,
                 },
             )
             return
@@ -787,6 +1017,9 @@ def main() -> None:
     Cfg.cloud_model = Cfg.frontier_model
 
     if args.classify is not None:
+        # Deterministic classify for tests/docs unless user forces LLM.
+        if Cfg.llm_classify in {"auto", ""}:
+            os.environ["ROUTER_CLASSIFY_OFFLINE"] = "1"
         route, reason, score = score_route(
             args.classify, {"messages": [{"role": "user", "content": args.classify}]}
         )

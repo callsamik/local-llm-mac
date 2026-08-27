@@ -45,4 +45,13 @@ check "sev-1 production outage on checkout" frontier
 check "investigate why the flaky e2e breaks" frontier
 check "compare trade-offs for event sourcing" frontier
 
+
+# Informal paraphrases (normalization + phrases + structure; offline)
+check "pls make a login page" cheap
+check "whip up a unit test for parseDate" cheap
+check "can you dig into why payments fail randomly" frontier
+check "production is down on checkout" frontier
+check "whats this function doing" local
+check "why is this broken in ci" frontier
+
 echo "all classification checks passed"

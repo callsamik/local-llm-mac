@@ -71,6 +71,8 @@ Do **not** put `ANTHROPIC_BASE_URL=…` permanently in `~/.zshrc`.
 
 Hosted lanes use **Claude Code CLI OAuth** (no `ANTHROPIC_API_KEY` required). Optional pay-as-you-go key still works if set.
 
+Scoring layers (in order): regex catalogs → informal phrase/slang normalization → structural cues (questions, imperatives, code fences) → optional **local Qwen** classify when still uncertain (`ROUTER_LLM_CLASSIFY=auto` by default; `never` to disable; `always` to force).
+
 ```bash
 curl -s http://127.0.0.1:11437/health
 ./scripts/test-router-classify.sh
