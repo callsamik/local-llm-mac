@@ -16,14 +16,14 @@ Do not point Desktop at 11435. Turn Ollama → Apps → Claude Off, then use:
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import socket
 import sys
-import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import urlparse
 
 class Settings:
     upstream = os.environ.get("OLLAMA_UPSTREAM", "http://127.0.0.1:11434").rstrip("/")
@@ -229,51 +229,73 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _forward(self, incoming: bytes, original: str | None) -> None:
+        # HTTP/1.1 keep-alive without Content-Length makes Desktop wait until it
+        # times out. Close every forwarded response. Stream SSE so the first
+        # token reaches Desktop before Ollama finishes the whole reply.
+        self.close_connection = True
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
         headers["Content-Length"] = str(len(incoming))
-        if "x-api-key" not in {k.lower() for k in headers} and "authorization" not in {
-            k.lower() for k in headers
-        }:
+        header_names = {k.lower() for k in headers}
+        if "x-api-key" not in header_names and "authorization" not in header_names:
             headers["x-api-key"] = "ollama"
-        req = urllib.request.Request(
-            Settings.upstream + self.path,
-            data=incoming if self.command != "GET" else None,
-            method=self.command,
-            headers=headers,
-        )
+        wants_stream = False
         try:
-            with urllib.request.urlopen(req, timeout=600) as resp:
+            wants_stream = bool(json.loads(incoming or b"{}").get("stream"))
+        except json.JSONDecodeError:
+            pass
+        parsed = urlparse(Settings.upstream)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        try:
+            conn = http.client.HTTPConnection(host, port, timeout=600)
+            conn.request(
+                self.command,
+                self.path,
+                body=incoming if self.command != "GET" else None,
+                headers=headers,
+            )
+            resp = conn.getresponse()
+            content_type = resp.getheader("Content-Type") or "application/json"
+            if wants_stream:
                 self.send_response(resp.status)
-                for key, value in resp.headers.items():
-                    if key.lower() not in HOP_BY_HOP:
-                        self.send_header(key, value)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "close")
                 self.end_headers()
                 while True:
-                    chunk = resp.read(4096)
+                    chunk = resp.read(256)
                     if not chunk:
                         break
                     self.wfile.write(restore_model(chunk, original))
                     self.wfile.flush()
-        except urllib.error.HTTPError as exc:
-            err_body = restore_model(exc.read(), original)
-            self.send_response(exc.code)
-            self.send_header("Content-Type", exc.headers.get("Content-Type", "application/json"))
-            self.send_header("Content-Length", str(len(err_body)))
-            self.end_headers()
-            self.wfile.write(err_body)
+            else:
+                body = restore_model(resp.read(), original)
+                self.send_response(resp.status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+                self.wfile.flush()
+            conn.close()
         except Exception as exc:  # noqa: BLE001
             msg = json.dumps(
                 {
                     "type": "error",
                     "error": {
                         "type": "api_error",
-                        "message": f"{exc}. Is Ollama running on {Settings.upstream}?",
+                        "message": (
+                            f"{exc}. Is Ollama running on {Settings.upstream}? "
+                            f"Load the model first: ollama run {Settings.local_model} pong"
+                        ),
                     },
                 }
             ).encode()
             self.send_response(502)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(msg)))
+            self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(msg)
 
