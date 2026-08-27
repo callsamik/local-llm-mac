@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Claude Code via llm-router: easy/medium → local 14B, hard → Anthropic.
+# Claude Code via llm-router: local Qwen / cheap Haiku / frontier Sonnet.
+# Auth for hosted lanes: Claude Code CLI login (OAuth) — API key optional.
 set -euo pipefail
 
 MODEL="${CLAUDE_ROUTED_MODEL:-claude-sonnet-4-6}"
@@ -19,17 +20,16 @@ if ! curl -sf "${OLLAMA_URL}/api/tags" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Keep a real Anthropic key for hard routes if present; do not blank it.
-# Router uses ANTHROPIC_API_KEY from the environment for cloud hops.
 unset CLAUDE_CODE_USE_BEDROCK
 unset AWS_REGION AWS_DEFAULT_REGION
 export ANTHROPIC_BASE_URL="${ROUTER_URL}"
+# Sentinel so Claude Code honors BASE_URL; router does not forward this as a real key.
+# Hosted lanes use Claude Code CLI OAuth from ~/.claude or Keychain (or a real API key if set).
 export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-ollama}"
-# If user has a real key, keep it for cloud. Else placeholder for local-only.
-if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+if [[ -z "${ANTHROPIC_API_KEY:-}" ]] || [[ "${ANTHROPIC_API_KEY}" == "ollama" ]]; then
   export ANTHROPIC_API_KEY="ollama"
 fi
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="${ANTHROPIC_DEFAULT_HAIKU_MODEL:-qwen-fast}"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="${ANTHROPIC_DEFAULT_HAIKU_MODEL:-claude-haiku-4-5}"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="${ANTHROPIC_DEFAULT_SONNET_MODEL:-${MODEL}}"
 export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-${MODEL}}"
 
@@ -37,4 +37,11 @@ if ! command -v claude >/dev/null 2>&1; then
   printf 'error: Claude Code CLI not found.\n' >&2
   exit 1
 fi
+
+# Nudge: hosted lanes need a prior `claude` login if no API key.
+if ! curl -sf "${ROUTER_URL}/health" | python3 -c 'import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get("cloud_auth_ready") else 1)' 2>/dev/null; then
+  printf 'note: llm-router has no Anthropic auth yet — cheap/frontier will stay local.\n' >&2
+  printf '      Log into Claude Code once (plain `claude`), then restart llm-router.\n' >&2
+fi
+
 exec claude --model "${MODEL}" "$@"

@@ -54,8 +54,8 @@ cmux / terminal → claude-routed → llm-router :11437
 claude-local    → always local Qwen (side chat / offline)
 ```
 
-- Real `ANTHROPIC_API_KEY` needed for cheap/frontier.
-- No key → those lanes fall back to local with an explicit log reason.
+- Real `ANTHROPIC_API_KEY` is **optional**. Prefer **Claude Code CLI login** (subscription OAuth); the router loads it from Keychain / `~/.claude/.credentials.json` for cheap/frontier.
+- No Claude login and no API key → those lanes fall back to local with an explicit log reason.
 - Do **not** put permanent `ANTHROPIC_BASE_URL=…11434` in shell rc (breaks real `claude` later).
 
 ---

@@ -95,17 +95,22 @@ Done.
 1) Warm the 14B (optional):
    ollama run qwen-fast --think=false "pong"
 
-2) Export your Anthropic key when you want cheap/frontier hosted lanes:
-   export ANTHROPIC_API_KEY=sk-ant-...
+2) Hosted lanes use Claude Code CLI login (no API key required):
+   claude    # log in once if needed
+   # then restart llm-router so it can read OAuth from Keychain / ~/.claude
+
+   Optional: export ANTHROPIC_API_KEY=sk-ant-... if you have a pay-as-you-go key
 
 3) In cmux / terminal:
-   llm-router          # if LaunchAgent is not already serving :11437
+   llm-router
    cd /path/to/repo
    claude-routed
 
 Lanes: local=qwen-fast · cheap=Haiku · frontier=Sonnet
+Auth: Claude Code OAuth (preferred) or API key
 Overrides: x-route: local|cheap|frontier
 Force: ROUTER_FORCE=local|cheap|frontier llm-router
 
 Health: curl -s http://127.0.0.1:11437/health
+# look for cloud_auth_ready / claude_cli_oauth_configured
 EOF

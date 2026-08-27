@@ -91,12 +91,18 @@ chmod +x scripts/setup-14b-router.sh
 Then:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...   # required for cheap/frontier
-llm-router                             # if LaunchAgent is not already up
-claude-routed                          # in cmux / terminal on your repo
+# once: log into Claude Code CLI (subscription) — no API key required
+claude
+# Ctrl-C after login works
+
+./scripts/setup-14b-router.sh
+llm-router          # picks up Claude Code OAuth from Keychain / ~/.claude
+claude-routed       # in cmux on your repo
 ```
 
-Without a real key, cheap/frontier fall back to local (logged). Overrides: `x-route: local|cheap|frontier` or `ROUTER_FORCE=…`. Legacy `cloud` maps to frontier.
+Hosted cheap/frontier use **Claude Code CLI OAuth** (or a real `ANTHROPIC_API_KEY` if you have one). The `ollama` placeholder in `claude-routed` only forces BASE_URL through the router — it is not a billing key.
+
+Without Claude login and without an API key, cheap/frontier fall back to local (logged). Overrides: `x-route: local|cheap|frontier` or `ROUTER_FORCE=…`. Legacy `cloud` maps to frontier.
 
 Unload the 27B when using this path: `ollama stop qwen-code`.
 

@@ -40,9 +40,10 @@ claude-local     → forced local (bypass scorer); still available
 ```
 
 - Operator works in **cmux** on the repo, runs `claude-routed`.
-- `ANTHROPIC_BASE_URL=http://127.0.0.1:11437`; real `ANTHROPIC_API_KEY` required for cheap/frontier.
-- Without a real key: cheap/frontier **fall back to local** and log `cloud-unavailable→local` (explicit, not silent mix of wrong hosted tier).
-- Cursor-pool “frontier” names (Fable, etc.) are **not** targets; “frontier” here means **hosted Anthropic strong tier** (Sonnet by default; Opus optional via env).
+- `ANTHROPIC_BASE_URL=http://127.0.0.1:11437`; sentinel `ANTHROPIC_API_KEY=ollama` only so Claude Code honors the base URL.
+- **Hosted auth:** Claude Code CLI subscription OAuth (`~/.claude` / macOS Keychain), or optional real `ANTHROPIC_API_KEY` if present.
+- Without either, cheap/frontier **fall back to local** and log `cloud-unavailable→local`.
+- Cursor-pool “frontier” names (Fable, etc.) are **not** targets; “frontier” here means **hosted Anthropic Sonnet**.
 
 ## 4. Architecture
 
