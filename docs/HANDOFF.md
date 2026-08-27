@@ -10,7 +10,7 @@ This document is for the next human or agent session. Do **not** reopen OmniRout
 
 ## 1. What we are building (current decision)
 
-**Primary deliverable:** offline **heuristic scorer** with three lanes:
+**Primary deliverable:** offline **heuristic scorer** with three lanes (now the **default `./install.sh` path**):
 
 | Lane | Model | Role |
 |------|--------|------|

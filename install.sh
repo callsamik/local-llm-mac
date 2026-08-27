@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Install Ollama and Qwen 3.8 27B for agentic coding on a MacBook Pro M3 Pro (36GB).
+# Install Ollama + Qwen 14B heuristic router (primary) on a MacBook Pro M3 Pro (36GB).
+# Optional: --with-27b also installs Qwen 3.8 27B as qwen-code.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,19 +19,26 @@ SMOKE_TEST=0
 ALLOW_LINUX=0
 SKIP_MODELS=0
 SKIP_CLAUDE=0
+WITH_27B=0
+SKIP_ROUTER=0
 
 usage() {
   cat <<'EOF'
-Install Ollama, Qwen 3.8 27B, Claude Code, and a Claude Desktop rewrite proxy.
+Install Ollama, Qwen 14B + heuristic router (primary), Claude Code, and helpers.
+
+Default (36GB Mac): qwen-fast (14B) + llm-router + claude-routed
+  local → Qwen · cheap → Haiku · frontier → Sonnet (Claude Code OAuth)
 
 Usage:
   ./install.sh [options]
 
 Options:
-  --mlx              Pull the MLX nvfp4 build (~18GB) instead of GGUF Q4
-  --skip-models      Install Ollama, Mac settings, and the Desktop proxy only
-  --skip-claude      Do not install Claude Code or the claude-local launcher
-  --smoke-test       After pull, generate one short reply (loads the 27B into RAM)
+  --with-27b         Also pull Qwen 3.8 27B as qwen-code (optional; more RAM)
+  --mlx              With 27B: pull MLX nvfp4 instead of GGUF Q4 (implies --with-27b)
+  --skip-router      Do not install llm-router / claude-routed / 14B pull via setup
+  --skip-models      Install Ollama, Mac settings, and proxies only
+  --skip-claude      Do not install Claude Code or launchers
+  --smoke-test       After pull, generate one short reply (loads a model into RAM)
   --dry-run          Print what would happen
   --allow-linux      Allow running the Linux Ollama installer (no MLX / LaunchAgent)
   -h, --help         Show this help
@@ -61,7 +69,7 @@ write_claude_local_script() {
   cat > "${dest}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-MODEL="${CLAUDE_LOCAL_MODEL:-qwen-code}"
+MODEL="${CLAUDE_LOCAL_MODEL:-qwen-fast}"
 HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 if [[ "${HOST}" != http* ]]; then
   BASE_URL="http://${HOST}"
@@ -176,9 +184,10 @@ write_claude_desktop_proxy_bin() {
   mkdir -p "$(dirname "${dest}")"
   cat > "${dest}" <<'EOF'
 #!/usr/bin/env bash
-# Start the Claude Desktop rewrite proxy (Anthropic ids → qwen-code on :11434).
+# Start the Claude Desktop rewrite proxy (Anthropic ids → local model on :11434).
 set -euo pipefail
 PY="${CLAUDE_DESKTOP_PROXY_PY:-${HOME}/.local/share/local-llm-mac/claude-desktop-proxy.py}"
+export CLAUDE_LOCAL_MODEL="${CLAUDE_LOCAL_MODEL:-qwen-fast}"
 if [[ ! -f "${PY}" ]]; then
   printf 'error: %s not found. Re-run install.sh.\n' "${PY}" >&2
   exit 1
@@ -233,7 +242,9 @@ run() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mlx) USE_MLX_QUANT=1 ;;
+    --mlx) USE_MLX_QUANT=1; WITH_27B=1 ;;
+    --with-27b) WITH_27B=1 ;;
+    --skip-router) SKIP_ROUTER=1 ;;
     --skip-models) SKIP_MODELS=1 ;;
     --skip-claude) SKIP_CLAUDE=1 ;;
     --smoke-test) SMOKE_TEST=1 ;;
@@ -281,23 +292,35 @@ MEM_GB="$(mem_gb)"
 FREE_GB="$(free_gb)"
 log "hardware: ${OS} ${ARCH}, ${MEM_GB}GB RAM, ${FREE_GB}GB free on the home volume"
 
-if [[ "${MEM_GB}" -gt 0 && "${MEM_GB}" -lt 32 ]]; then
-  warn "${MEM_GB}GB is below the 32GB comfort line for Qwen 3.8 27B with a 49k agent context."
+if [[ "${MEM_GB}" -gt 0 && "${MEM_GB}" -lt 24 ]]; then
+  warn "${MEM_GB}GB is tight for local Qwen + IDE; prefer the 14B router path and close other apps."
 fi
 
-PRIMARY_TAG="qwen3.8:27b"
-PRIMARY_ALIAS="qwen-code"
-PRIMARY_SIZE_GB=18
+# Primary path: 14B local lane for the heuristic router.
+PRIMARY_TAG="qwen3:14b"
+PRIMARY_ALIAS="qwen-fast"
+PRIMARY_SIZE_GB=10
 
+LEGACY_TAG="qwen3.8:27b"
+LEGACY_ALIAS="qwen-code"
+LEGACY_SIZE_GB=18
 if [[ "${USE_MLX_QUANT}" -eq 1 ]]; then
-  PRIMARY_TAG="qwen3.8:27b-nvfp4"
-  PRIMARY_SIZE_GB=18
+  LEGACY_TAG="qwen3.8:27b-nvfp4"
+  LEGACY_SIZE_GB=18
 fi
 
-NEED_GB=$((PRIMARY_SIZE_GB + 4))
+NEED_GB=${PRIMARY_SIZE_GB}
+if [[ "${WITH_27B}" -eq 1 ]]; then
+  NEED_GB=$((NEED_GB + LEGACY_SIZE_GB))
+fi
+NEED_GB=$((NEED_GB + 4))
 
 if [[ "${SKIP_MODELS}" -eq 0 && "${FREE_GB}" -gt 0 && "${FREE_GB}" -lt "${NEED_GB}" ]]; then
   die "need about ${NEED_GB}GB free to pull the selected models; ${FREE_GB}GB available."
+fi
+
+if [[ "${SKIP_ROUTER}" -eq 1 && "${WITH_27B}" -eq 0 && "${SKIP_MODELS}" -eq 0 ]]; then
+  warn "--skip-router with no --with-27b leaves no coding model unless you pull one yourself."
 fi
 
 start_ollama_cli() {
@@ -500,26 +523,78 @@ pull_models() {
     export PATH="$(dirname "${ollama_bin}"):${PATH}"
   fi
 
-  log "pulling ${PRIMARY_TAG} (~${PRIMARY_SIZE_GB}GB). This can take a while."
-  run ollama pull "${PRIMARY_TAG}"
-  create_alias "${PRIMARY_ALIAS}" "${PRIMARY_TAG}"
+  # 14B is installed by install_router (setup-14b-router.sh) unless skipped.
+  if [[ "${SKIP_ROUTER}" -eq 1 ]]; then
+    log "pulling ${PRIMARY_TAG} (~${PRIMARY_SIZE_GB}GB) without router setup"
+    run ollama pull "${PRIMARY_TAG}"
+    if [[ "${DRY_RUN}" -eq 0 ]]; then
+      ollama create "${PRIMARY_ALIAS}" -f "${ROOT}/modelfiles/qwen-code-14b.Modelfile"
+    else
+      printf 'dry-run: ollama create %s -f modelfiles/qwen-code-14b.Modelfile\n' "${PRIMARY_ALIAS}"
+    fi
+  fi
+
+  if [[ "${WITH_27B}" -eq 1 ]]; then
+    log "pulling optional ${LEGACY_TAG} (~${LEGACY_SIZE_GB}GB)"
+    run ollama pull "${LEGACY_TAG}"
+    create_alias "${LEGACY_ALIAS}" "${LEGACY_TAG}"
+  fi
+
   # Claude Desktop rejects ids that are not claude-sonnet/opus/haiku.
-  # Same local weights, names the app will accept.
+  local desktop_src="${PRIMARY_ALIAS}"
+  if [[ "${WITH_27B}" -eq 1 ]]; then
+    desktop_src="${LEGACY_ALIAS}"
+  fi
   for desktop_name in claude-sonnet-4-5 claude-sonnet-4-6; do
-    log "aliasing ${PRIMARY_ALIAS} as ${desktop_name} for Claude Desktop"
-    run ollama cp "${PRIMARY_ALIAS}" "${desktop_name}"
+    log "aliasing ${desktop_src} as ${desktop_name} for Claude Desktop"
+    run ollama cp "${desktop_src}" "${desktop_name}"
   done
+}
+
+install_router() {
+  [[ "${SKIP_ROUTER}" -eq 0 ]] || return 0
+  [[ "${SKIP_MODELS}" -eq 0 ]] || {
+    warn "skipping router model pull because --skip-models; bins may still be useful later"
+  }
+  local setup="${ROOT}/scripts/setup-14b-router.sh"
+  [[ -f "${setup}" ]] || die "missing ${setup}"
+  log "installing 14B qwen-fast + llm-router + claude-routed (primary path)"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    printf 'dry-run: bash %s\n' "${setup}"
+    return 0
+  fi
+  if [[ "${SKIP_MODELS}" -eq 1 ]]; then
+    # Install bins only: copy from setup script logic without pull.
+    local bin="${HOME}/.local/bin"
+    local share="${HOME}/.local/share/local-llm-mac"
+    mkdir -p "${bin}" "${share}"
+    cp "${ROOT}/scripts/llm-router.py" "${share}/llm-router.py"
+    cp "${ROOT}/scripts/claude-routed" "${bin}/claude-routed"
+    cat > "${bin}/llm-router" <<EOF
+#!/usr/bin/env bash
+exec python3 "${share}/llm-router.py" "\$@"
+EOF
+    chmod 755 "${bin}/llm-router" "${bin}/claude-routed"
+    ensure_local_bin_on_path "${bin}"
+    warn "models skipped; run ./scripts/setup-14b-router.sh later to pull qwen3:14b"
+    return 0
+  fi
+  bash "${setup}"
 }
 
 smoke_test() {
   [[ "${SMOKE_TEST}" -eq 1 ]] || return 0
   [[ "${SKIP_MODELS}" -eq 0 ]] || return 0
-  log "smoke test: one short generation from ${PRIMARY_ALIAS} (loads the model into RAM)"
+  local model="${PRIMARY_ALIAS}"
+  if [[ "${SKIP_ROUTER}" -eq 1 && "${WITH_27B}" -eq 1 ]]; then
+    model="${LEGACY_ALIAS}"
+  fi
+  log "smoke test: one short generation from ${model} (loads the model into RAM)"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    printf 'dry-run: ollama run %s\n' "${PRIMARY_ALIAS}"
+    printf 'dry-run: ollama run %s\n' "${model}"
     return 0
   fi
-  ollama run "${PRIMARY_ALIAS}" "Reply with the single word pong."
+  ollama run "${model}" --think=false "Reply with the single word pong."
 }
 
 install_claude_code() {
@@ -605,6 +680,11 @@ install_desktop_proxy() {
     <string>${py_bin}</string>
     <string>${DESKTOP_PROXY_PY_DST}</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CLAUDE_LOCAL_MODEL</key>
+    <string>qwen-fast</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -652,35 +732,36 @@ print_next_steps() {
 
 Done.
 
-Until Cursor / Claude credits reset: use the terminal, not Cursor Agent.
+Primary path (36GB): heuristic router — local Qwen 14B / cheap Haiku / frontier Sonnet.
 
-  cd /path/to/your/repo
+  # once: Claude Code CLI login (subscription OAuth; no API key required)
+  claude
+
+  # cmux / terminal on your repo
+  claude-routed
+
+Health:  curl -s http://127.0.0.1:11437/health
+Classify: python3 ~/.local/share/local-llm-mac/llm-router.py --classify "rename helper"
+
+Local-only side chat (no hosted lanes):
   claude-local
 
-That is Claude Code + local Qwen 3.8. No Anthropic or Cursor usage.
-Plain "claude" still bills Anthropic — do not use it while balance is exhausted.
+Do not put ANTHROPIC_BASE_URL in ~/.zshrc — use claude-routed / claude-local only.
 
-Claude Desktop (the app) is not port 11435. That sidecar returns:
-  unknown Claude model "claude-sonnet-4-6"
-Turn Ollama → Apps → Claude  Off, then:
+Claude Desktop (optional): not port 11435. Turn Ollama → Apps → Claude Off, then:
+  Gateway: http://127.0.0.1:${DESKTOP_PROXY_PORT}   key: ollama   model: claude-sonnet-4-6
 
-  Gateway base URL:  http://127.0.0.1:${DESKTOP_PROXY_PORT}
-  API key:           ollama
-  Auth:              x-api-key
-  Model:             claude-sonnet-4-6
-  Tier:              sonnet
-
-The rewrite proxy maps that name to local ${PRIMARY_ALIAS}. Cmd+Q Desktop, reopen.
-
-Model:         ${PRIMARY_ALIAS}  (${PRIMARY_TAG}, ~${PRIMARY_SIZE_GB}GB)
-API:           http://127.0.0.1:11434 (Ollama)
+Local model:   ${PRIMARY_ALIAS}  (${PRIMARY_TAG}, ~${PRIMARY_SIZE_GB}GB)
+Router:        http://127.0.0.1:11437
+Ollama API:    http://127.0.0.1:11434
 Desktop proxy: http://127.0.0.1:${DESKTOP_PROXY_PORT}
-Keep-alive:    model stays loaded
-Context:       49152  Thinking: medium (raise per hard bug)
-
-Whenever balance is back: keep claude-local for everyday work; use Cursor
-cloud or plain claude only when the local agent is stuck.
 EOF
+  if [[ "${WITH_27B}" -eq 1 ]]; then
+    cat <<EOF
+Optional 27B:  ${LEGACY_ALIAS}  (${LEGACY_TAG}, ~${LEGACY_SIZE_GB}GB)
+  Prefer unloading it while using the router: ollama stop ${LEGACY_ALIAS}
+EOF
+  fi
 }
 
 if [[ "${IS_DARWIN}" -eq 1 ]]; then
@@ -690,6 +771,7 @@ else
 fi
 install_mac_env
 start_ollama
+install_router
 pull_models
 install_claude_code
 install_claude_launcher
