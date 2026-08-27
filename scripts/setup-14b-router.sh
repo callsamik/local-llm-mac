@@ -122,5 +122,5 @@ Auth: Claude Code OAuth (preferred) or API key
 Overrides: x-route / ROUTER_FORCE · also gated by ENABLE flags
 
 Health: curl -s http://127.0.0.1:11437/health
-# look for cloud_auth_ready / claude_cli_oauth_configured
+# look for cloud_auth_ready / enable_opus / enable_fable
 EOF

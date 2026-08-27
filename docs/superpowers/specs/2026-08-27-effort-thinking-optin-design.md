@@ -19,12 +19,23 @@
 | local | — | off |
 | haiku | low | off |
 | sonnet (score ≈ 2) | medium | adaptive |
-| sonnet (score 3–4, “opus-hard”) | high | adaptive |
-| sonnet (score ≥ 5, “fable-hard”) | xhigh | adaptive (required) |
-| opus (opt-in) | high (xhigh if asked) | adaptive |
-| fable (opt-in) | xhigh (max if asked) | adaptive |
+| sonnet (score 3–4 when opus off) | high | adaptive |
+| sonnet (score ≥ 5 when fable off) | xhigh | adaptive (required) |
+| opus (`ROUTER_ENABLE_OPUS=1`) | high (xhigh if asked) | adaptive |
+| fable (`ROUTER_ENABLE_FABLE=1`) | xhigh (max if asked) | adaptive |
 
 Never send `thinking: disabled` with effort `xhigh` or `max`. Honor client `output_config.effort` / `thinking` when already set.
+
+## How to enable Opus / Fable
+
+```bash
+export ROUTER_ENABLE_OPUS=1
+export ROUTER_ENABLE_FABLE=1   # optional
+# restart llm-router / LaunchAgent
+curl -s http://127.0.0.1:11437/health   # enable_opus / enable_fable
+```
+
+Accepted values: `1`, `true`, `yes`, `on`. Off = unset / `0` / `false`, or `ROUTER_DISABLE_*=1`.
 
 ## Classify JSON
 
