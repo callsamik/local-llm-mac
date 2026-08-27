@@ -4,6 +4,8 @@ Installs Ollama and **Qwen 3.8 27B** — same size as the 3.6 27B, trained for l
 
 One model. Code stays on the laptop. Default reasoning effort is **medium** so it does not spend 20 minutes on a rename; raise it for hard bugs.
 
+**Team write-up:** full research, dead ends, Desktop/spend-limit findings, and performance notes are in [`docs/LOCAL-LLM-RESEARCH.md`](./docs/LOCAL-LLM-RESEARCH.md).
+
 ## Install on the Mac
 
 ```bash
