@@ -375,13 +375,30 @@ install_claude_launcher() {
   run mkdir -p "${dest_dir}"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     printf 'dry-run: cp %s %s\n' "${ROOT}/scripts/claude-local" "${dest}"
+  else
+    cp "${ROOT}/scripts/claude-local" "${dest}"
+    chmod 755 "${dest}"
+  fi
+  ensure_local_bin_on_path "${dest_dir}"
+}
+
+ensure_local_bin_on_path() {
+  local dest_dir="$1"
+  local marker="# local-llm-mac: claude-local on PATH"
+  local line='export PATH="$HOME/.local/bin:$PATH"'
+  local rc
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    printf 'dry-run: append PATH hint to ~/.zprofile and ~/.zshrc if missing\n'
     return 0
   fi
-  cp "${ROOT}/scripts/claude-local" "${dest}"
-  chmod 755 "${dest}"
-  if [[ ":${PATH}:" != *":${dest_dir}:"* ]]; then
-    warn "${dest_dir} is not on PATH. Add it, or run ${dest} directly."
-  fi
+  for rc in "${HOME}/.zprofile" "${HOME}/.zshrc"; do
+    touch "${rc}"
+    if ! grep -Fq "${marker}" "${rc}"; then
+      printf '\n%s\n%s\n' "${marker}" "${line}" >> "${rc}"
+    fi
+  done
+  export PATH="${dest_dir}:${PATH}"
+  log "ensured ~/.local/bin is on PATH in ~/.zprofile and ~/.zshrc (new terminals only)"
 }
 
 print_next_steps() {
@@ -389,30 +406,21 @@ print_next_steps() {
 
 Done.
 
-Agent model:   ollama run ${PRIMARY_ALIAS}
-Upstream:      ${PRIMARY_TAG}
-API:           http://127.0.0.1:11434
-OpenAI path:   http://127.0.0.1:11434/v1
-Keep-alive:    model stays loaded (plugged-in setup)
-Context:       32768 tokens (headroom for the run, not the whole repo)
-Bind:          localhost only
-Thinking:      on, default effort medium (raise per request for hard bugs)
+Until Cursor / Claude credits reset: use the terminal, not Cursor Agent.
 
-Cursor / agent harness: OpenAI-compatible
-  Base URL  http://127.0.0.1:11434/v1
-  Model     ${PRIMARY_ALIAS}
-  API key   ollama  (any non-empty string)
-
-Hard task: send reasoning_effort "high" (or "xhigh" if the client allows it).
-Quick lookup: reasoning_effort "low" or /no_think in the prompt.
-
-Claude Code against local Qwen (code stays on this Mac):
+  cd /path/to/your/repo
   claude-local
-  # or: ollama launch claude --model ${PRIMARY_ALIAS}
 
-Real Anthropic Claude (subscription / API key): run plain claude
-in a project. Do not export ANTHROPIC_BASE_URL in your shell profile
-or every Claude session will hit Ollama instead of Anthropic.
+That is Claude Code + local Qwen 3.8. No Anthropic or Cursor usage.
+Plain "claude" still bills Anthropic — do not use it until 1 Sep.
+
+Model:         ${PRIMARY_ALIAS}  (${PRIMARY_TAG}, ~${PRIMARY_SIZE_GB}GB)
+API:           http://127.0.0.1:11434 (localhost only)
+Keep-alive:    model stays loaded
+Context:       32768  Thinking: medium (raise per hard bug)
+
+From 1 Sep: keep claude-local for everyday work; use Cursor cloud or
+plain claude only when the local agent is stuck.
 EOF
 }
 

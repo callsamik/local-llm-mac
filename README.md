@@ -24,32 +24,35 @@ Optional: `./install.sh --mlx` pulls `qwen3.8:27b-nvfp4` (still ~18GB, usually f
 
 Expect a long download.
 
-## Two ways to “use Claude”
+## Until 1 September (no Cursor / Claude balance)
 
-| Command | Brain | Where code goes |
-|---|---|---|
-| `claude-local` | Qwen 3.8 on this Mac | Stays on the laptop |
-| `claude` | Anthropic Claude (your subscription / API key) | Anthropic’s API |
-
-Use both. Do **not** put `ANTHROPIC_BASE_URL=http://127.0.0.1:11434` in `~/.zshrc` — that would send every `claude` session to Ollama and break real Claude.
+Do the work in a **terminal**, not Cursor Agent.
 
 ```bash
 cd /path/to/your/repo
 claude-local
 ```
 
-Same thing, Ollama’s built-in launcher:
+That is Claude Code driving **local Qwen 3.8**. It does not use Cursor usage or Anthropic credits.
+
+- Do **not** run plain `claude` until the recharge — that still bills Anthropic.
+- Do **not** pick Auto / Claude / GPT in Cursor Agent — that still bills Cursor. Cursor also often cannot reach `localhost` Ollama because Agent traffic goes through Cursor’s servers.
+- Cursor Tab can still use Cursor’s cloud; turn it off if you need to stretch anything left.
+
+Need a new terminal after install so `claude-local` is on PATH (`~/.local/bin`).
+
+## From 1 September
+
+Keep `claude-local` for everyday agent runs so the new balance lasts. Use Cursor cloud or plain `claude` only when the local agent is stuck.
+
+Do **not** put `ANTHROPIC_BASE_URL=http://127.0.0.1:11434` in `~/.zshrc` — that would send every `claude` session to Ollama after you have credits again.
 
 ```bash
-ollama launch claude --model qwen-code
-```
+# local (free)
+claude-local
 
-If `~/.claude/settings.json` has `CLAUDE_CODE_USE_BEDROCK`, `claude-local` unsets it for that process only. Remove it from the file if Bedrock still wins.
-
-Need `~/.local/bin` on PATH:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
+# Anthropic, after 1 Sep
+claude
 ```
 
 ## Use it as a chat model
@@ -57,12 +60,6 @@ export PATH="$HOME/.local/bin:$PATH"
 ```bash
 ollama run qwen-code
 ```
-
-Cursor / Continue / Aider (OpenAI-compatible):
-
-- Base URL: `http://127.0.0.1:11434/v1`
-- Model: `qwen-code`
-- API key: any non-empty string
 
 ### Reasoning effort
 
