@@ -1,8 +1,8 @@
 # Feature Pipeline + Failover Router — Design
 
 **Date:** 2026-08-27  
-**Status:** Draft for review (no implementation until approved)  
-**Out of scope:** OmniRoute, multiprovider-llm, and any multi-cloud gateway that can see office code.
+**Status:** **DEFERRED** — superseded for near-term work by [`2026-08-27-heuristic-router-design.md`](./2026-08-27-heuristic-router-design.md) (local / cheap / frontier heuristic). Keep this doc as a future optional architecture; do not implement until the heuristic spike is validated.  
+**Out of scope for now:** OmniRoute, multiprovider-llm, and any multi-cloud gateway that can see office code.
 
 ## 1. Goal
 
