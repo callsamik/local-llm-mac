@@ -87,6 +87,14 @@ curl -s http://127.0.0.1:11436/health
 
 You should see `"proxy": "claude-desktop-proxy"`. If that fails, the LaunchAgent is not up — run `claude-desktop-proxy` in a terminal and leave it open.
 
+**Gateway timeout on `/v1/messages`:** model discovery works, but the first chat hangs. Load the 27B into RAM first, then send `ping`:
+
+```bash
+ollama run qwen-code "Reply with the single word pong."
+```
+
+Wait until it prints `pong` (can take a minute). Then retry Desktop. Keep Ollama open so keep-alive holds the model.
+
 Cloud connectors that need Anthropic’s backend (Gmail, Drive, and similar) will not work in this mode. `claude-local` in a terminal is the more reliable $0 agent until credits return.
 
 ## Use it as a chat model
