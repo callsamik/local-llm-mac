@@ -12,6 +12,7 @@ from llm_router.scoring.llm import OllamaLlmScorer
 from llm_router.session import InMemorySessionStore
 from llm_router.upstream import HttpUpstreamClient
 
+_default_deps: HandlerDeps | None = None
 
 
 def build_handler_deps() -> HandlerDeps:

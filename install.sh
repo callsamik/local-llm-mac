@@ -102,81 +102,19 @@ EOF
 
 write_claude_desktop_proxy_py() {
   local dest="$1"
-  mkdir -p "$(dirname "${dest}")"
+  local share
+  share="$(dirname "${dest}")"
+  mkdir -p "${share}"
+  if [[ -d "${ROOT}/claude_desktop_proxy" ]]; then
+    rm -rf "${share}/claude_desktop_proxy"
+    cp -R "${ROOT}/claude_desktop_proxy" "${share}/claude_desktop_proxy"
+  fi
   if [[ -f "${ROOT}/scripts/claude-desktop-proxy.py" ]]; then
     cp "${ROOT}/scripts/claude-desktop-proxy.py" "${dest}"
     chmod 644 "${dest}"
     return
   fi
-  python3 - "${dest}" <<'PY'
-import base64, gzip, pathlib, sys
-blob = """
-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
-"""
-pathlib.Path(sys.argv[1]).write_bytes(gzip.decompress(base64.b64decode("".join(blob.split()))))
-PY
-  chmod 644 "${dest}"
+  die "missing scripts/claude-desktop-proxy.py"
 }
 
 write_claude_desktop_proxy_bin() {
@@ -187,6 +125,8 @@ write_claude_desktop_proxy_bin() {
 # Start the Claude Desktop rewrite proxy (Anthropic ids → local model on :11434).
 set -euo pipefail
 PY="${CLAUDE_DESKTOP_PROXY_PY:-${HOME}/.local/share/local-llm-mac/claude-desktop-proxy.py}"
+SHARE="$(dirname "${PY}")"
+export PYTHONPATH="${SHARE}:${PYTHONPATH:-}"
 export CLAUDE_LOCAL_MODEL="${CLAUDE_LOCAL_MODEL:-qwen-fast}"
 if [[ ! -f "${PY}" ]]; then
   printf 'error: %s not found. Re-run install.sh.\n' "${PY}" >&2
@@ -568,10 +508,13 @@ install_router() {
     local bin="${HOME}/.local/bin"
     local share="${HOME}/.local/share/local-llm-mac"
     mkdir -p "${bin}" "${share}"
+    rm -rf "${share}/llm_router"
+    [[ -d "${ROOT}/llm_router" ]] && cp -R "${ROOT}/llm_router" "${share}/llm_router"
     cp "${ROOT}/scripts/llm-router.py" "${share}/llm-router.py"
     cp "${ROOT}/scripts/claude-routed" "${bin}/claude-routed"
     cat > "${bin}/llm-router" <<EOF
 #!/usr/bin/env bash
+export PYTHONPATH="${share}:\${PYTHONPATH:-}"
 exec python3 "${share}/llm-router.py" "\$@"
 EOF
     chmod 755 "${bin}/llm-router" "${bin}/claude-routed"
@@ -684,6 +627,8 @@ install_desktop_proxy() {
   <dict>
     <key>CLAUDE_LOCAL_MODEL</key>
     <string>qwen-fast</string>
+    <key>PYTHONPATH</key>
+    <string>${HOME}/.local/share/local-llm-mac</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

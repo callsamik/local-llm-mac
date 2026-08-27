@@ -10,15 +10,14 @@ from typing import Any
 from llm_router.cascade import cascade_from, model_for_lane, should_failover_status
 from llm_router.config import Cfg
 from llm_router.models import AUTO_LANES, LANE_ORDER
-from llm_router.protocols import AuthProvider, UpstreamClient
+from llm_router.protocols import AuthProvider, RouteDeciderPort, UpstreamClient
 from llm_router.rewrite import rewrite_for_hosted, rewrite_for_local
-from llm_router.routing import RouteDecider
 from llm_router.scoring.effort import defaults_for_failover_lane
 
 
 @dataclass
 class HandlerDeps:
-    route_decider: RouteDecider
+    route_decider: RouteDeciderPort
     auth: AuthProvider
     upstream: UpstreamClient
 

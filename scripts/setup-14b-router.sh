@@ -49,6 +49,11 @@ if [[ "$(uname -s)" == Darwin ]]; then
     <string>${PY}</string>
     <string>${SHARE}/llm-router.py</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>${SHARE}</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>${HOME}/.ollama/llm-router.log</string>

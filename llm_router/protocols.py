@@ -34,6 +34,10 @@ class SessionStore(Protocol):
     def put(self, key: str, decision: RouteDecision) -> None: ...
 
 
+class RouteDeciderPort(Protocol):
+    def decide(self, headers: dict[str, str], data: dict[str, Any]) -> RouteDecision: ...
+
+
 class UpstreamClient(Protocol):
     def exchange(
         self,

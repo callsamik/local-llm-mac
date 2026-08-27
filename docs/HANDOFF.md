@@ -21,7 +21,7 @@ Specs:
 - [`docs/superpowers/specs/2026-08-27-effort-thinking-optin-design.md`](./superpowers/specs/2026-08-27-effort-thinking-optin-design.md)
 - Earlier three-lane history: [`2026-08-27-heuristic-router-design.md`](./superpowers/specs/2026-08-27-heuristic-router-design.md) (superseded for lanes)
 
-**Project:** `~/Projects/local-llm-mac` → `/workspace`
+**Code layout:** SOLID packages `llm_router/` and `claude_desktop_proxy/` (protocols + composition root); `scripts/*.py` are thin shims.
 
 ---
 

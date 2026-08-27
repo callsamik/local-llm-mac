@@ -65,7 +65,15 @@ Thinking on local Qwen: use `--think=false` / API `"think": false` — do not re
 
 Do **not** put `ANTHROPIC_BASE_URL=…` permanently in `~/.zshrc`.
 
-## Smart router details
+## Layout (SOLID)
+
+| Package | Role |
+|---------|------|
+| `llm_router/` | Heuristic + LLM scoring, auth, cascade, HTTP proxy (DI via `composition.py`) |
+| `claude_desktop_proxy/` | Desktop model-id rewrite → Ollama |
+| `scripts/*.py` | Thin shims (`python3 scripts/llm-router.py`) |
+
+Protocols live in each package’s `protocols.py`. Wire-up is only in `composition.py`.
 
 | Lane | Model | Typical asks |
 |------|--------|----------------|
