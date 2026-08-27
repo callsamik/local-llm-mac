@@ -125,7 +125,7 @@ Thinking is on. The wrapper defaults to **medium**.
 |---|---|
 | Multi-file bug, tests failing, long unsupervised run | `"reasoning_effort": "high"` (or `xhigh` if the client accepts it) |
 | Normal agent coding (default) | nothing extra — medium |
-| Quick lookup | `"reasoning_effort": "low"` or `/no_think` in the prompt |
+| Quick lookup | `"think": false` / `ollama run … --think=false` (preferred). Do not rely on `/no_think` alone. |
 
 Example for a hard run:
 
