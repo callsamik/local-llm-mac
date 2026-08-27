@@ -13,6 +13,7 @@ Do **not** reopen OmniRoute / multiprovider-llm unless the user asks.
 **Auto ladder:** `local → haiku → sonnet` only.  
 **Opus / Fable:** opt-in only (`use opus` / `use fable`, `x-route`, `ROUTER_FORCE`). Hard prompts raise **sonnet effort**, not the lane.  
 **Also scored:** effort (`low|medium|high|xhigh|max`, extra→xhigh) + thinking (`off`|adaptive).  
+**Local LLM scores:** when heuristics are uncertain/conflicting/borderline (`ROUTER_LLM_CLASSIFY=auto`), Qwen returns `{lane,score,effort}`; falls back to heuristic if Ollama is down.  
 **Versions:** env-pinned; cascade on errors.  
 **Hard block:** `ROUTER_DISABLE_OPUS=1` / `ROUTER_DISABLE_FABLE=1`.
 

@@ -85,7 +85,7 @@ Model **versions** stay env-pinned (`ROUTER_HAIKU_MODEL`, `ROUTER_SONNET_MODEL`,
 
 Hosted lanes use **Claude Code CLI OAuth** (no `ANTHROPIC_API_KEY` required).
 
-Scoring layers: regex → informal phrases → structural cues → optional local Qwen classify (`ROUTER_LLM_CLASSIFY=auto`).
+Scoring layers: regex → informal phrases → structural cues → **local Qwen score** when needed (`ROUTER_LLM_CLASSIFY=auto`). The local model returns JSON `{lane, score, effort}` to refine borderline / conflicting / uncertain prompts; heuristics win if Ollama is down. Force always/never with `ROUTER_LLM_CLASSIFY=always|never`. Timeout: `ROUTER_LLM_CLASSIFY_TIMEOUT` (default 12s).
 
 Overrides: `x-route` / `ROUTER_FORCE` = `local|haiku|sonnet|opus|fable` (legacy `cheap`→haiku, `frontier`/`cloud`→sonnet).
 

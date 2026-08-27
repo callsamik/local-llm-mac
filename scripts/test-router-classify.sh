@@ -82,7 +82,6 @@ check_meta "use opus for this security audit" opus high adaptive
 
 # cascade + helpers
 python3 - "$PY" <<'PY'
-import os
 import sys
 from importlib.machinery import SourceFileLoader
 
@@ -116,7 +115,31 @@ payload2 = m.rewrite_for_hosted(
 )
 assert payload2["thinking"]["type"] == "adaptive"
 
-print("ok  cascade / effort helpers")
+# Local LLM score helpers
+parsed = m._parse_llm_score_payload(
+    '{"lane":"sonnet","score":4,"effort":"high"}'
+)
+assert parsed["lane"] == "sonnet" and parsed["score"] == 4
+assert m._parse_llm_score_payload("haiku score:1 effort:low")["lane"] == "haiku"
+assert m.needs_llm_score(
+    confident=False, hard_hit=False, medium_hit=False, easy_hits=0,
+    score=0, reasons=[], opus_hard=False, fable_hard=False,
+)
+assert m.needs_llm_score(
+    confident=True, hard_hit=True, medium_hit=False, easy_hits=1,
+    score=1, reasons=["hard:x", "easy:y"], opus_hard=False, fable_hard=False,
+)
+assert m.needs_llm_score(
+    confident=True, hard_hit=True, medium_hit=False, easy_hits=0,
+    score=2, reasons=["hard:leak"], opus_hard=False, fable_hard=False,
+)
+# Confident clean haiku should NOT need LLM
+assert not m.needs_llm_score(
+    confident=True, hard_hit=False, medium_hit=True, easy_hits=0,
+    score=1, reasons=["medium:implement"], opus_hard=False, fable_hard=False,
+)
+
+print("ok  cascade / effort / llm-score helpers")
 PY
 
 echo "all classification checks passed"

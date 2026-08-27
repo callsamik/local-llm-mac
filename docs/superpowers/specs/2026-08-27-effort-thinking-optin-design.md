@@ -33,3 +33,16 @@ Never send `thinking: disabled` with effort `xhigh` or `max`. Honor client `outp
 ```
 
 Local: `"effort": null`, `"thinking": "off"`.
+
+## Local LLM scoring (when necessary)
+
+Default `ROUTER_LLM_CLASSIFY=auto` asks **local Qwen** (`ROUTER_LOCAL_MODEL`) for a compact JSON score when heuristics are:
+
+- uncertain (no catalog hit),
+- conflicting (hard/medium vs easy),
+- light-hard without strong opus/fable cues (refine effort),
+- or structural-only signals.
+
+Response shape: `{"lane":"local|haiku|sonnet","score":<int>,"effort":...}`.  
+On Ollama failure, heuristic score is kept (`llm-score:fallback-heuristic`).  
+`ROUTER_LLM_CLASSIFY=always|never` overrides; `--classify` stays offline for unit tests.
