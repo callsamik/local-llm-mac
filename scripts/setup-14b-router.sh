@@ -85,6 +85,7 @@ done
 
 log "smoke: classify a few prompts"
 python3 "${SHARE}/llm-router.py" --classify "rename the helper and fix the typo"
+python3 "${SHARE}/llm-router.py" --classify "implement a login form with validation"
 python3 "${SHARE}/llm-router.py" --classify "root cause the flaky payment race condition across services"
 
 cat <<EOF
@@ -94,7 +95,7 @@ Done.
 1) Warm the 14B (optional):
    ollama run qwen-fast --think=false "pong"
 
-2) Export your Anthropic key when you want hard tasks to go to cloud:
+2) Export your Anthropic key when you want cheap/frontier hosted lanes:
    export ANTHROPIC_API_KEY=sk-ant-...
 
 3) In cmux / terminal:
@@ -102,9 +103,9 @@ Done.
    cd /path/to/repo
    claude-routed
 
-Overrides per request header (advanced): x-route: local|cloud
-Force all local:  ROUTER_FORCE=local llm-router
-Force all cloud:  ROUTER_FORCE=cloud ANTHROPIC_API_KEY=... llm-router
+Lanes: local=qwen-fast · cheap=Haiku · frontier=Sonnet
+Overrides: x-route: local|cheap|frontier
+Force: ROUTER_FORCE=local|cheap|frontier llm-router
 
 Health: curl -s http://127.0.0.1:11437/health
 EOF

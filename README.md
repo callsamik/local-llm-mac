@@ -73,9 +73,15 @@ claude-local
 claude
 ```
 
-## Smart router (14B local + cloud for hard tasks)
+## Smart router (local / cheap / frontier)
 
-On a 36GB machine that also runs IDE/browser work, **Qwen3 14B** (`qwen-fast`) leaves more headroom than 27B once KV cache and context are counted. A small proxy on `:11437` sends easy/medium turns to that local model and harder / reasoning-heavy turns to hosted Claude when `ANTHROPIC_API_KEY` is set.
+On a 36GB machine, **Qwen3 14B** (`qwen-fast`) is the **local happy path**. A proxy on `:11437` scores each turn offline:
+
+| Lane | Model | Typical asks |
+|------|--------|----------------|
+| **local** | `qwen-fast` | rename, explain, list files |
+| **cheap** | Haiku | implement / fix / add tests |
+| **frontier** | Sonnet | architecture, races, security audits |
 
 ```bash
 chmod +x scripts/setup-14b-router.sh
@@ -85,16 +91,18 @@ chmod +x scripts/setup-14b-router.sh
 Then:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...   # optional; without it, hard tasks stay local
+export ANTHROPIC_API_KEY=sk-ant-...   # required for cheap/frontier
 llm-router                             # if LaunchAgent is not already up
 claude-routed                          # in cmux / terminal on your repo
 ```
 
-Heuristics (sticky per conversation): architecture, migrations, race conditions, security audits, “root cause”, long prompts, and enabled thinking → cloud; renames, typos, “what is…”, list files → local. Override with header `x-route: local|cloud` or `ROUTER_FORCE=local|cloud`.
+Without a real key, cheap/frontier fall back to local (logged). Overrides: `x-route: local|cheap|frontier` or `ROUTER_FORCE=…`. Legacy `cloud` maps to frontier.
 
-Unload the 27B when using this path so RAM stays free: `ollama stop qwen-code`.
+Unload the 27B when using this path: `ollama stop qwen-code`.
 
 Classify without Ollama: `./scripts/test-router-classify.sh`
+
+Design / handoff: [`docs/superpowers/specs/2026-08-27-heuristic-router-design.md`](./docs/superpowers/specs/2026-08-27-heuristic-router-design.md), [`docs/HANDOFF.md`](./docs/HANDOFF.md).
 
 ## Claude Desktop app
 

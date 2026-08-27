@@ -23,7 +23,11 @@ This document is for the next human or agent session. Do **not** reopen OmniRout
 **Design spec (source of truth):**  
 [`docs/superpowers/specs/2026-08-27-heuristic-router-design.md`](./superpowers/specs/2026-08-27-heuristic-router-design.md)
 
-**Status of that spec:** defaults locked; user had not yet said “write the implementation plan” / “implement” after locking A. Next step after handoff: confirm spec OK → **implementation plan** → extend `llm-router.py` to three lanes.
+**Status of that spec:** Implemented in `scripts/llm-router.py` (three lanes). Mac/cmux live validation still recommended.
+
+**Project folder (this machine):** `~/Projects/local-llm-mac` → `/workspace`  
+**Session file:** `IMPLEMENTATION-SESSION.md`  
+**Plan:** [`docs/superpowers/plans/2026-08-27-heuristic-router.md`](./superpowers/plans/2026-08-27-heuristic-router.md)
 
 ---
 
@@ -62,21 +66,21 @@ claude-local    → always local Qwen (side chat / offline)
 
 | Path | State |
 |------|--------|
-| `scripts/llm-router.py` | **2-lane** only: `local` vs `cloud` (cloud ≈ Sonnet). Needs upgrade to `local` / `cheap` / `frontier`. |
+| `scripts/llm-router.py` | **3-lane** heuristic: `local` / `cheap` / `frontier` (Haiku + Sonnet). |
 | `scripts/claude-routed` | Points Claude Code at `:11437`. |
 | `scripts/setup-14b-router.sh` | Pulls `qwen3:14b`, creates `qwen-fast`, installs router + optional LaunchAgent. |
 | `modelfiles/qwen-code-14b.Modelfile` | Lean 14B alias (`num_ctx` 24576). |
-| `scripts/test-router-classify.sh` | Tests 2-lane classify; must be extended for cheap. |
+| `scripts/test-router-classify.sh` | Fixtures for local / cheap / frontier. |
 | `scripts/claude-local` | Session-only env → Ollama `qwen-code` (27B path). |
 | `scripts/claude-desktop-proxy.py` | Desktop gateway rewrite on `:11436` → local model. |
 | `install.sh` + `modelfiles/qwen-code.Modelfile` | Original 27B install path. |
-| `README.md` | Mentions 27B install + early 14B/2-lane router section. |
+| `README.md` | Documents 27B install + three-lane smart router. |
 
-### Classify smoke (current 2-lane)
+### Classify smoke (three-lane)
 
 ```bash
 bash scripts/test-router-classify.sh
-# easy → local; hard → cloud (will become frontier)
+# local / cheap / frontier fixtures
 ```
 
 ---
@@ -141,11 +145,9 @@ claude-routed
 
 ## 8. Suggested next steps (in order)
 
-1. User confirms heuristic design is final.  
-2. Write implementation plan under `docs/superpowers/plans/` (writing-plans skill).  
-3. Implement three-lane scoring in `llm-router.py` + update `test-router-classify.sh` + short README note.  
-4. On Mac: `setup-14b-router.sh`, run classify fixtures, then `claude-routed` in cmux and watch `[llm-router] route=…` logs.  
-5. Only after spike validation: reconsider deferred feature-pipeline design.
+1. ~~User confirms heuristic design / implement three lanes~~ **done in repo**.  
+2. On Mac: `setup-14b-router.sh`, run `test-router-classify.sh`, then `claude-routed` in cmux; watch `[llm-router] route=…` logs.  
+3. Only after spike validation: reconsider deferred feature-pipeline design.
 
 ---
 
@@ -170,4 +172,4 @@ claude-routed
 
 ## 11. One-line summary for the next agent
 
-> Extend `scripts/llm-router.py` from 2-lane local/cloud to **3-lane local (Qwen) / cheap (Haiku) / frontier (Sonnet)** per [`docs/superpowers/specs/2026-08-27-heuristic-router-design.md`](./superpowers/specs/2026-08-27-heuristic-router-design.md); leave the stage pipeline deferred; no OmniRoute; implement after an implementation plan unless the user says to code immediately.
+> Three-lane heuristic router is implemented in `scripts/llm-router.py` (local Qwen / Haiku / Sonnet). Validate on the Mac via cmux + `claude-routed`. Feature pipeline remains deferred. Project path: `~/Projects/local-llm-mac`.

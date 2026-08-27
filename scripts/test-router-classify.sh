@@ -19,7 +19,10 @@ check() {
 check "rename the helper and fix the typo" local
 check "list the files in this folder" local
 check "what is UserService?" local
-check "root cause the flaky payment race condition across services" cloud
-check "design the architecture for a multi-service migration" cloud
-check "security audit of the auth flow" cloud
+check "implement a login form with validation" cheap
+check "add a unit test for parseDate" cheap
+check "fix the bug in the save handler" cheap
+check "root cause the flaky payment race condition across services" frontier
+check "design the architecture for a multi-service migration" frontier
+check "security audit of the auth flow" frontier
 echo "all classification checks passed"
