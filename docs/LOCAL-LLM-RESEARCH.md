@@ -13,7 +13,7 @@ This document is the research record: decisions, dead ends, architecture, measur
 
 | Question | Finding |
 |---|---|
-| Can we run a useful coding agent fully local on this Mac? | **Yes.** Ollama + **Qwen 3.8 27B** (~18 GB) fits in 36 GB with a 32k context. |
+| Can we run a useful coding agent fully local on this Mac? | **Yes.** Ollama + **Qwen 3.8 27B** (~18 GB) fits in 36 GB with a ~49k context. |
 | Best $0 coding path | Terminal **`claude-local`** (Claude Code CLI → Ollama). Not Cursor Agent. Not signed-in Claude Desktop. |
 | Does Claude Desktop work with local Qwen? | **Only in third-party gateway mode**, with a rewrite proxy (or a future Ollama Apps mapping that actually accepts the Claude model ids). |
 | Does a local model bypass Anthropic’s monthly spend limit in Desktop? | **No, if you stay signed into Claude.ai.** Spend limit is an account gate. Local inference does not clear it. |
@@ -46,11 +46,11 @@ This document is the research record: decisions, dead ends, architecture, measur
 |---|---|
 | **Qwen 3.8 27B** (`qwen3.8:27b`) | **Chosen.** Same footprint class as 3.6 27B (~18 GB), stronger for agentic coding. Alias used: `qwen-code`. |
 | Optional MLX quant (`qwen3.8:27b-nvfp4`) | Same size class; usually faster on Apple Silicon (`./install.sh --mlx`). |
-| Larger models (70B+) | Rejected for comfort on 36 GB with OS + IDE + 32k agent context. |
+| Larger models (70B+) | Rejected for comfort on 36 GB with OS + IDE + ~49k agent context. |
 
 **Defaults baked into `qwen-code`:**
 
-- `num_ctx` 32768  
+- `num_ctx` **49152** (32k was too small for Claude Code’s system+tools prompt; see §8.5)  
 - Thinking on, **medium** reasoning effort (via system prompt)  
 - Keep-alive so the model stays loaded (`OLLAMA_KEEP_ALIVE=-1`)
 
@@ -233,16 +233,28 @@ Interpretation: model resident, Metal/GPU path, keep-alive working. Cold start w
 
 **Conclusion:** Ollama + Qwen are fine for short replies. Desktop wraps large system prompts, tools/skills, and (by default) model thinking. That dominates wall time.
 
-### 8.3 Mitigations for chat latency
+### 8.4 Memory budget
+
+~49k context + ~18 GB weights is the comfort line on 36 GB with macOS + IDE. If Activity Monitor memory pressure goes yellow/red, close browsers/other apps before raising context further.
+
+### 8.5 `500 no user query found in messages` (Claude Code / cmux)
+
+**Symptom:** `claude-local` starts, first real query fails with retries:
+
+```text
+500 no user query found in messages · Retrying …
+```
+
+**Cause (Ollama + Qwen 3.8):** Claude Code sends a large opening payload (system prompt + dozens of tool schemas, often ~35k+ tokens). With `num_ctx` 32768, Ollama silently truncates and can drop the user turn; the Qwen 3.8 renderer then errors with this misleading 500. Same class of bug as [ollama#17778](https://github.com/ollama/ollama/issues/17778) / [ollama#17754](https://github.com/ollama/ollama/issues/17754). Not a cmux bug.
+
+**Fix on this Mac:** raise context to **49152** on the `qwen-code` alias (fits 36 GB with the 27B Q4/MLX weights). Upgrade Ollama when renderer fixes land. Also pin Haiku/Sonnet helper model env vars to `qwen-code` in `claude-local`.
+
+### 8.6 Mitigations for chat latency
 
 - Prefix short chats with `/no_think`.
 - Prefer `claude-local` for coding agents (closer to raw Ollama cost).
 - Optional: MLX quant (`--mlx`).
-- Optional later: lower `num_ctx` for chat-only aliases (32k reserved for agent work).
-
-### 8.4 Memory budget
-
-32k context + ~18 GB weights is the comfort line on 36 GB with macOS + IDE. If Activity Monitor memory pressure goes yellow/red, close browsers/other apps before raising context.
+- Optional later: lower `num_ctx` for chat-only aliases (agent alias stays at 49k).
 
 ---
 

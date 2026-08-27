@@ -50,7 +50,7 @@ launchctl setenv OLLAMA_HOST "127.0.0.1:11434"
 launchctl setenv OLLAMA_KEEP_ALIVE "-1"
 launchctl setenv OLLAMA_FLASH_ATTENTION "1"
 launchctl setenv OLLAMA_MLX "1"
-launchctl setenv OLLAMA_CONTEXT_LENGTH "32768"
+launchctl setenv OLLAMA_CONTEXT_LENGTH "49152"
 launchctl setenv OLLAMA_NUM_PARALLEL "1"
 EOF
   chmod 755 "${dest}"
@@ -77,6 +77,9 @@ unset AWS_REGION AWS_DEFAULT_REGION
 export ANTHROPIC_AUTH_TOKEN="ollama"
 export ANTHROPIC_API_KEY=""
 export ANTHROPIC_BASE_URL="${BASE_URL}"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="${ANTHROPIC_DEFAULT_HAIKU_MODEL:-${MODEL}}"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="${ANTHROPIC_DEFAULT_SONNET_MODEL:-${MODEL}}"
+export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-${MODEL}}"
 if command -v claude >/dev/null 2>&1; then
   exec claude --model "${MODEL}" "$@"
 fi
@@ -204,7 +207,7 @@ write_qwen_modelfile() {
   local from_model="$2"
   cat > "${dest}" <<EOF
 FROM ${from_model}
-PARAMETER num_ctx 32768
+PARAMETER num_ctx 49152
 PARAMETER num_predict 8192
 PARAMETER temperature 0.6
 PARAMETER top_p 0.95
@@ -279,7 +282,7 @@ FREE_GB="$(free_gb)"
 log "hardware: ${OS} ${ARCH}, ${MEM_GB}GB RAM, ${FREE_GB}GB free on the home volume"
 
 if [[ "${MEM_GB}" -gt 0 && "${MEM_GB}" -lt 32 ]]; then
-  warn "${MEM_GB}GB is below the 32GB comfort line for Qwen 3.8 27B with a 32k agent context."
+  warn "${MEM_GB}GB is below the 32GB comfort line for Qwen 3.8 27B with a 49k agent context."
 fi
 
 PRIMARY_TAG="qwen3.8:27b"
@@ -461,7 +464,7 @@ EOF
 
   if [[ "${DRY_RUN}" -eq 0 ]]; then
     if pgrep -x Ollama >/dev/null 2>&1; then
-      log "restarting the Ollama app so MLX / keep-alive / 32k context take effect"
+      log "restarting the Ollama app so MLX / keep-alive / 49k context take effect"
       killall Ollama >/dev/null 2>&1 || true
       sleep 1
       if [[ -d "${HOME}/Applications/Ollama.app" ]]; then
@@ -673,7 +676,7 @@ Model:         ${PRIMARY_ALIAS}  (${PRIMARY_TAG}, ~${PRIMARY_SIZE_GB}GB)
 API:           http://127.0.0.1:11434 (Ollama)
 Desktop proxy: http://127.0.0.1:${DESKTOP_PROXY_PORT}
 Keep-alive:    model stays loaded
-Context:       32768  Thinking: medium (raise per hard bug)
+Context:       49152  Thinking: medium (raise per hard bug)
 
 Whenever balance is back: keep claude-local for everyday work; use Cursor
 cloud or plain claude only when the local agent is stuck.

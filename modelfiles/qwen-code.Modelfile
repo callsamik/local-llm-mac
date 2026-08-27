@@ -2,7 +2,7 @@
 # Thinking stays on. Default effort is medium via the system prompt so
 # runs do not spiral at xhigh; raise effort per request for hard bugs.
 FROM {{FROM_MODEL}}
-PARAMETER num_ctx 32768
+PARAMETER num_ctx 49152
 PARAMETER num_predict 8192
 PARAMETER temperature 0.6
 PARAMETER top_p 0.95

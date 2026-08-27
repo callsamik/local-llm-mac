@@ -17,7 +17,7 @@ That will:
 
 1. Install Ollama (Homebrew if present, otherwise the official app into `~/Applications`)
 2. Bind the API to `127.0.0.1:11434`
-3. Enable MLX, flash attention, keep-alive, and a 32k context
+3. Enable MLX, flash attention, keep-alive, and a 49k context
 4. Persist those settings across reboot
 5. Pull `qwen3.8:27b` (~18GB) and create the `qwen-code` alias
 6. Install Claude Code and a `claude-local` launcher that points it at that model
@@ -127,16 +127,16 @@ curl http://127.0.0.1:11434/v1/chat/completions \
   }'
 ```
 
-Do not leave `xhigh` on for every request. On this Mac it will burn the 32k context on thinking and feel stalled.
+Do not leave `xhigh` on for every request. On this Mac it will burn the 49k context on thinking and feel stalled.
 
 ## Context on 36GB
 
-32k tokens is the budget that still leaves room for macOS + Cursor + the 18GB weights. That is enough for an agent to read several files and a test log. It is not enough to dump the whole repo into the prompt — let the agent open files as it goes.
+49k tokens is the budget that still leaves room for macOS + Cursor + the 18GB weights while fitting Claude Code’s large system/tools prompt (32k was too small and caused `500 no user query found in messages`). That is enough for an agent to read several files and a test log. It is not enough to dump the whole repo into the prompt — let the agent open files as it goes.
 
 If Activity Monitor memory pressure goes yellow/red, close Chrome tabs or drop context; do not raise `num_ctx` first.
 
 ## After reboot
 
-The LaunchAgent at `~/Library/LaunchAgents/com.ollama.mac-env.plist` reapplies localhost bind, keep-alive, MLX, flash attention, 32k context, and a single parallel slot. Open the Ollama app once after login if the API is not up.
+The LaunchAgent at `~/Library/LaunchAgents/com.ollama.mac-env.plist` reapplies localhost bind, keep-alive, MLX, flash attention, 49k context, and a single parallel slot. Open the Ollama app once after login if the API is not up.
 
 The Claude Desktop rewrite proxy relaunches from `~/Library/LaunchAgents/com.local-llm.claude-desktop-proxy.plist` on `127.0.0.1:11436`.
