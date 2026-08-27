@@ -66,7 +66,7 @@ This document is the research record: decisions, dead ends, architecture, measur
 |---|---|
 | **OmniRoute / cloud LLM gateways** | Can see office code; defeats “stay local.” |
 | **Cursor Agent as the $0 path** | Agent traffic often goes through Cursor’s servers; `localhost` Ollama frequently unreachable; Auto/Claude/GPT still bill Cursor. |
-| **Global `ANTHROPIC_BASE_URL=…11434` in `~/.zshrc`** | Breaks real `claude` after credits return; every session would hit Ollama by accident. |
+| **Global `ANTHROPIC_BASE_URL=…11434` in `~/.zshrc`** | Breaks real `claude` whenever balance is back; every session would hit Ollama by accident. |
 | **Relying on Ollama → Apps → Claude (port 11435) alone** | On the tested builds this returned `unknown Claude model "claude-sonnet-4-6"`. |
 
 ---
