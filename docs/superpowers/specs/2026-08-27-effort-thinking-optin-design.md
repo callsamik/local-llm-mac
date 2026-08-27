@@ -7,7 +7,7 @@
 ## Decision
 
 1. **Auto ladder is three lanes:** `local → haiku → sonnet`.
-2. **Opus and Fable are off by default** — selected only on **explicit request** (`x-route` / `ROUTER_FORCE` / opt-in phrases like “use opus”, “use fable”). Difficulty phrases (security audit, architecture, …) raise **sonnet effort**, they do **not** auto-pick opus/fable.
+2. **Opus and Fable are off by default** (`ROUTER_ENABLE_OPUS` / `ROUTER_ENABLE_FABLE`). When a flag is **on**, dedicated phrase catalogs and score floors (opus ≈4+, fable ≈6+) may auto-assign that lane for prompts that truly need it. When **off**, those prompts stay on sonnet with higher effort. Explicit `use opus` / `x-route` are also gated by the same flags.
 3. **Within a hosted lane**, the scorer also picks **effort** (`low|medium|high|xhigh|max`; user “extra” → API `xhigh`) and **thinking** (`off` or adaptive `on`).
 4. **Model versions** stay env-pinned per family; cascade on errors. Cascade never *ascends*; when walking down from fable/opus, lower tiers are allowed. Auto starts never include opus/fable.
 5. Hard block (optional): `ROUTER_DISABLE_OPUS=1` / `ROUTER_DISABLE_FABLE=1` → even requests fall back to sonnet.

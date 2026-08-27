@@ -36,7 +36,7 @@ Feature-pipeline Plan→Build→Clean→Audit · OmniRoute · research-doc updat
 ```
 cmux → claude-routed → llm-router :11437
   auto: local | haiku | sonnet (+ effort/thinking)
-  opt-in: opus | fable
+  optional: opus | fable when ROUTER_ENABLE_* =1
   cascade ↓ → local last
 ```
 

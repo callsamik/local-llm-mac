@@ -115,10 +115,11 @@ Done.
    claude-routed
 
 Lanes (auto): local → haiku → sonnet (+ effort/thinking)
-Opt-in only: opus / fable (“use opus”, “use fable”, x-route)
+Optional costly tiers: ROUTER_ENABLE_OPUS=1 / ROUTER_ENABLE_FABLE=1
+  (then category scores/phrases may forward to opus/fable)
 Cascade down to local on errors (ROUTER_CASCADE=1)
 Auth: Claude Code OAuth (preferred) or API key
-Overrides: x-route / ROUTER_FORCE · Disable: ROUTER_DISABLE_OPUS / ROUTER_DISABLE_FABLE
+Overrides: x-route / ROUTER_FORCE · also gated by ENABLE flags
 
 Health: curl -s http://127.0.0.1:11437/health
 # look for cloud_auth_ready / claude_cli_oauth_configured
