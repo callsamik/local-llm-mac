@@ -35,6 +35,76 @@ EOF
 log()  { printf '==> %s\n' "$*"; }
 warn() { printf '!!  %s\n' "$*" >&2; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+write_ollama_env_script() {
+  local dest="$1"
+  cat > "${dest}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+launchctl setenv OLLAMA_HOST "127.0.0.1:11434"
+launchctl setenv OLLAMA_KEEP_ALIVE "-1"
+launchctl setenv OLLAMA_FLASH_ATTENTION "1"
+launchctl setenv OLLAMA_MLX "1"
+launchctl setenv OLLAMA_CONTEXT_LENGTH "32768"
+launchctl setenv OLLAMA_NUM_PARALLEL "1"
+EOF
+  chmod 755 "${dest}"
+}
+
+write_claude_local_script() {
+  local dest="$1"
+  cat > "${dest}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+MODEL="${CLAUDE_LOCAL_MODEL:-qwen-code}"
+HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
+if [[ "${HOST}" != http* ]]; then
+  BASE_URL="http://${HOST}"
+else
+  BASE_URL="${HOST}"
+fi
+if ! curl -sf "${BASE_URL}/api/tags" >/dev/null 2>&1; then
+  printf 'error: Ollama is not running at %s\nOpen the Ollama app, then retry.\n' "${BASE_URL}" >&2
+  exit 1
+fi
+unset CLAUDE_CODE_USE_BEDROCK
+unset AWS_REGION AWS_DEFAULT_REGION
+export ANTHROPIC_AUTH_TOKEN="ollama"
+export ANTHROPIC_API_KEY=""
+export ANTHROPIC_BASE_URL="${BASE_URL}"
+if command -v claude >/dev/null 2>&1; then
+  exec claude --model "${MODEL}" "$@"
+fi
+if command -v ollama >/dev/null 2>&1 && ollama launch --help >/dev/null 2>&1; then
+  exec ollama launch claude --model "${MODEL}" --yes -- "$@"
+fi
+printf 'error: Claude Code CLI not found.\nInstall it, then retry:\n  curl -fsSL https://claude.ai/install.sh | bash\n' >&2
+exit 1
+EOF
+  chmod 755 "${dest}"
+}
+
+write_qwen_modelfile() {
+  local dest="$1"
+  local from_model="$2"
+  cat > "${dest}" <<EOF
+FROM ${from_model}
+PARAMETER num_ctx 32768
+PARAMETER num_predict 8192
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
+PARAMETER top_k 20
+PARAMETER repeat_penalty 1.05
+
+SYSTEM """You are a local coding agent on this machine. Think before you act, then finish the job.
+
+Reasoning effort is set to medium. Think carefully, validate key assumptions, then move to a concrete plan and execute. Do not loop on alternatives or rewrite the same approach. If blocked, say what you tried and what you need.
+
+For multi-step work: inspect the relevant files, make the smallest correct change, run or reason about tests, and continue until the task is done or you are blocked. Prefer applying a patch over dumping a whole file. Do not claim you ran a command you did not run.
+"""
+EOF
+}
+
 run() {
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     printf 'dry-run: %s\n' "$*"
@@ -241,10 +311,9 @@ install_mac_env() {
   log "writing persistent Ollama environment for the macOS app"
   run mkdir -p "${HOME}/.ollama" "${HOME}/Library/LaunchAgents"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    printf 'dry-run: install %s -> %s\n' "${ROOT}/scripts/set-ollama-env.sh" "${OLLAMA_ENV_DST}"
+    printf 'dry-run: write %s\n' "${OLLAMA_ENV_DST}"
   else
-    cp "${ROOT}/scripts/set-ollama-env.sh" "${OLLAMA_ENV_DST}"
-    chmod 755 "${OLLAMA_ENV_DST}"
+    write_ollama_env_script "${OLLAMA_ENV_DST}"
   fi
 
   local plist
@@ -293,7 +362,6 @@ EOF
 create_alias() {
   local alias_name="$1"
   local from_model="$2"
-  local template="$3"
   local tmp
   tmp="$(mktemp)"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
@@ -301,7 +369,7 @@ create_alias() {
     rm -f "${tmp}"
     return 0
   fi
-  sed "s|{{FROM_MODEL}}|${from_model}|g" "${template}" > "${tmp}"
+  write_qwen_modelfile "${tmp}" "${from_model}"
   ollama create "${alias_name}" -f "${tmp}"
   rm -f "${tmp}"
 }
@@ -316,7 +384,7 @@ pull_models() {
 
   log "pulling ${PRIMARY_TAG} (~${PRIMARY_SIZE_GB}GB). This can take a while."
   run ollama pull "${PRIMARY_TAG}"
-  create_alias "${PRIMARY_ALIAS}" "${PRIMARY_TAG}" "${ROOT}/modelfiles/qwen-code.Modelfile"
+  create_alias "${PRIMARY_ALIAS}" "${PRIMARY_TAG}"
 }
 
 smoke_test() {
@@ -374,10 +442,9 @@ install_claude_launcher() {
   log "installing claude-local launcher to ${dest}"
   run mkdir -p "${dest_dir}"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    printf 'dry-run: cp %s %s\n' "${ROOT}/scripts/claude-local" "${dest}"
+    printf 'dry-run: write %s\n' "${dest}"
   else
-    cp "${ROOT}/scripts/claude-local" "${dest}"
-    chmod 755 "${dest}"
+    write_claude_local_script "${dest}"
   fi
   ensure_local_bin_on_path "${dest_dir}"
 }

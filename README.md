@@ -7,7 +7,7 @@ One model. Code stays on the laptop. Default reasoning effort is **medium** so i
 ## Install on the Mac
 
 ```bash
-chmod +x install.sh scripts/set-ollama-env.sh scripts/claude-local
+chmod +x install.sh
 ./install.sh
 ```
 
