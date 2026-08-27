@@ -3,7 +3,9 @@
 **Audience:** engineering team  
 **Hardware under test:** MacBook Pro, Apple Silicon M3 Pro, 36 GB unified memory (plugged in)  
 **Date of findings:** late August 2026  
-**Goal:** keep coding/agent work productive while Cursor and Claude balances are exhausted, then keep a cheap local default whenever balance is back.
+**Goal (original spike):** keep coding/agent work productive while Cursor and Claude balances are exhausted, then keep a cheap local default whenever balance is back.
+
+**Goal (revised after spike — proposed):** treat local Qwen as a **first-class lane for easy/medium tasks**, not only an out-of-tokens fallback. Route harder / reasoning-heavy work to hosted Claude/GPT. Prefer a **~14B** local model on 36 GB machines so KV cache, long context, and other desktop work do not thrash unified memory (27B fits, but leaves little headroom).
 
 This document is the research record: decisions, dead ends, architecture, measured behavior, and recommendations. Day-to-day install steps live in [`README.md`](./README.md).
 
@@ -22,6 +24,8 @@ This document is the research record: decisions, dead ends, architecture, measur
 | Why did “hello” take ~1 minute in Desktop? | Model was warm on GPU. Latency was **Desktop’s large system/tools stack + thinking**, not Ollama. |
 | Why did Claude Code / cmux take ~11 minutes? | **Thinking is on by default** for Qwen 3.8. Reasoning tokens fill the budget before `content`. Prompt `/no_think` is **not** enough — use `think: false` / `--think=false`. |
 | `500 no user query found in messages`? | Claude Code’s opening prompt overflowed **32k** context. Fix: **`num_ctx` 49152**. Not a cmux bug. |
+| Is 27B the right long-term size on 36 GB? | **Questionable for multitasking.** It runs, but KV cache + ~49k context + thinking + IDE/browser pressure the machine. **~14B is the next spike** for headroom. |
+| Better product goal than “fallback when out of tokens”? | **Yes — local/cloud router:** easy/medium → local Qwen; hard / high-reasoning → hosted model. |
 
 ---
 
@@ -33,6 +37,8 @@ This document is the research record: decisions, dead ends, architecture, measur
 - Office Mac; code should stay on the laptop (no cloud gateway that can see repo contents).
 - Prefer long agent runs (plan → edit → test → repeat) with controllable reasoning effort.
 - Whenever balance is back: keep local as the cheap default; escalate to cloud only when stuck.
+- **Revised:** leave enough RAM headroom for normal laptop use (IDE, browser, meetings) — do not size the local model to the absolute maximum that still boots.
+- **Revised:** design for **intelligent routing** (local vs hosted), not only emergency offline/fallback.
 
 ### 2.2 Non-goals
 
@@ -492,19 +498,68 @@ Installer also embeds the proxy for machines that only copy `install.sh`. Refres
 3. Ship a second alias `qwen-code-fast` with thinking off by default?  
 4. Can Claude Code be told to pass `think: false` / Anthropic `thinking.type=disabled` through to Ollama reliably?  
 5. Will Cursor ever support true localhost models without a public tunnel and without a paid/usage gate?  
-6. Team policy: when is local Qwen “good enough” vs escalate to Claude/GPT?
+6. Team policy: when is local Qwen “good enough” vs escalate to Claude/GPT?  
+7. **Spike:** Qwen / coder **~14B** on the same M3 Pro — latency, quality on easy/medium tasks, memory with IDE + browser open.  
+8. **Spike:** thin **task router** (heuristics first) — easy/medium → local; hard/reasoning-heavy → hosted; measure token savings and escalate rate.
 
 ---
 
 ## 12. Bottom line for the team
 
-1. **Local coding works** on M3 Pro 36 GB with **Qwen 3.8 27B** (`qwen-code`) + Ollama.  
+1. **Local coding works** on M3 Pro 36 GB with **Qwen 3.8 27B** (`qwen-code`) + Ollama — as a spike, not a polished primary path.  
 2. **`claude-local` in cmux/terminal is the reliable $0 agent.** Cursor Agent is not. Plain `claude` still bills Anthropic.  
 3. **No Cursor balance ⇒ keep Cursor as an editor; run the agent in cmux.** Override Base URL / tunnels do not unlock Agent when usage is exhausted; BYOK/custom models need an active Cursor paid plan.  
 4. **Claude Desktop + local Qwen requires gateway mode + name rewriting** (our 11436 proxy, unless Ollama’s Apps path is fixed).  
 5. **Signed-in Desktop still enforces Anthropic spend limits** even when the UI shows Qwen.  
 6. Use **`num_ctx` 49152** or Claude Code hits `500 no user query found in messages`.  
 7. **Thinking defaults on** and can turn a simple reply into ~11 minutes; **`/no_think` is not enough** — use `--think=false` / `"think": false`.  
-8. When the UI only says `API error · Retrying`, probe Ollama directly; do not debug cmux first.
+8. When the UI only says `API error · Retrying`, probe Ollama directly; do not debug cmux first.  
+9. **Next direction:** prefer **~14B** for headroom on 36 GB, and shift from “fallback when out of tokens” to a **router** — local for easy/medium, hosted for hard reasoning.
+
+---
+
+## 13. Revised direction (post-spike)
+
+### 13.1 Why not stay on 27B as the default local lane
+
+27B Q4/MLX (~17–18 GB weights) **does run** on 36 GB unified memory. Under real use it competes with:
+
+- KV cache at long context (we needed ~49k for Claude Code’s tool/system prompt)
+- Reasoning/thinking traces (can dominate wall time and token budget)
+- Cursor/IDE, browser, Slack, and other office workload
+
+Net: viable for a dedicated agent session; **uncomfortable as always-on while multitasking**.
+
+**Proposal:** evaluate a **~14B** coding-capable Qwen (or equivalent) as the default local model — lower footprint, faster turns, more headroom for context without yellow/red memory pressure.
+
+### 13.2 Goal shift: router, not only fallback
+
+| Old framing | New framing |
+|---|---|
+| Local model = last resort when Cursor/Claude balance is exhausted | Local model = **default for easy/medium** tasks |
+| Hosted = everything else when you have credits | Hosted = **hard / reasoning-intensive** tasks (and when local fails the quality bar) |
+
+Sketch:
+
+```text
+                    ┌──────────────┐
+  user / agent ──►  │ task router  │
+                    └──────┬───────┘
+               easy/medium │         hard / high-reasoning
+                           ▼                    ▼
+                    local Qwen ~14B      hosted Claude / GPT
+                    (Ollama / claude-local)
+```
+
+Routing signals (v1 heuristics, no ML required): task type (rename/test fix vs architecture), estimated context size, explicit user override (`/local` vs `/cloud`), prior local failure. Later: small classifier or confidence from the local model’s own “I’m stuck” signal.
+
+### 13.3 Success metrics for the next spike
+
+1. **Memory:** 14B + ~32–49k ctx + IDE open stays green in Activity Monitor.  
+2. **Latency:** easy tasks (explain file, small patch) in seconds with thinking off.  
+3. **Quality:** acceptable on a fixed suite of easy/medium prompts; escalate rate to hosted tracked.  
+4. **Cost:** measurable reduction in hosted token spend when the router is on.
+
+Until that spike lands, treat the 27B setup as a **documented prototype** (this gist/repo), not the recommended team default.
 
 For install and daily commands, see [`README.md`](./README.md).
