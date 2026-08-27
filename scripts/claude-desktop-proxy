@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Start the Claude Desktop rewrite proxy (Anthropic ids → qwen-code on :11434).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="${CLAUDE_DESKTOP_PROXY_PY:-${HOME}/.local/share/local-llm-mac/claude-desktop-proxy.py}"
+if [[ ! -f "${PY}" ]]; then
+  PY="${ROOT}/claude-desktop-proxy.py"
+fi
+if [[ ! -f "${PY}" ]]; then
+  printf 'error: claude-desktop-proxy.py not found.\n' >&2
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'error: python3 is required for the Claude Desktop proxy.\n' >&2
+  exit 1
+fi
+
+if curl -sf "http://127.0.0.1:11435/v1/models" >/dev/null 2>&1 \
+  || curl -sf -o /dev/null -w '' "http://127.0.0.1:11435/" >/dev/null 2>&1; then
+  printf '!!  Ollama Claude sidecar is listening on 11435.\n' >&2
+  printf '!!  That is the process that returns: unknown Claude model "claude-sonnet-4-6"\n' >&2
+  printf '!!  Turn it Off: Ollama menu → Apps → Claude → Off\n' >&2
+  printf '!!  Then in Claude Desktop set Gateway to http://127.0.0.1:11436\n' >&2
+fi
+
+if ! curl -sf "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
+  printf 'warning: Ollama is not responding on 127.0.0.1:11434. Open the Ollama app.\n' >&2
+fi
+
+exec python3 "${PY}" "$@"

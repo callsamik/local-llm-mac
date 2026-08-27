@@ -19,6 +19,7 @@ That will:
 4. Persist those settings across reboot
 5. Pull `qwen3.8:27b` (~18GB) and create the `qwen-code` alias
 6. Install Claude Code and a `claude-local` launcher that points it at that model
+7. Install a Claude Desktop rewrite proxy on `127.0.0.1:11436` (LaunchAgent on Mac)
 
 Optional: `./install.sh --mlx` pulls `qwen3.8:27b-nvfp4` (still ~18GB, usually faster on Apple Silicon).
 
@@ -57,27 +58,18 @@ claude
 
 ## Claude Desktop app
 
-Yes, after Ollama is running. The stock Claude Desktop app still talks to Anthropic (no/low balance until 1 Sep). Point it at local Ollama instead:
+The error `unknown Claude model "claude-sonnet-4-6"` on **port 11435** means Desktop is talking to Ollama’s Claude sidecar. That sidecar only catalogs real Claude slots. Aliasing Qwen as `claude-sonnet-4-6` on port 11434 does not change 11435.
 
-1. Use a current Ollama (Claude Desktop support shipped 25 Aug 2026).
-2. Open Ollama → Claude → turn **Claude** on. Ollama writes the third-party gateway for you.
-3. In Claude Desktop, choose **`claude-sonnet-4-5`** (that is still local Qwen; Desktop rejects `qwen-code`).
-4. On 1 Sep, turn Claude **off** in Ollama to restore Anthropic.
+**Do not use `http://127.0.0.1:11435`.**
 
-Claude Desktop only accepts names like `claude-sonnet-4-5`. After the model is installed:
+1. In Ollama: **Apps → Claude → Off** (or `ollama launch claude-desktop --restore`).
+2. Start the rewrite proxy if the installer LaunchAgent is not already serving it:
 
 ```bash
-ollama cp qwen-code claude-sonnet-4-5
-ollama cp qwen-code claude-sonnet-4-6
+claude-desktop-proxy
 ```
 
-**Do not use port 11435.** That is Ollama’s Claude sidecar; it only catalogs real Anthropic ids and returns `unknown Claude model "claude-sonnet-4-6"`. Turn **Ollama → Apps → Claude** **Off**, then run a rewrite proxy:
-
-```bash
-python3 scripts/claude-desktop-proxy.py
-```
-
-Leave that terminal open. In Desktop’s gateway form:
+3. In Claude Desktop (Help → Troubleshooting → Enable Developer Mode → Developer → Configure Third-Party Inference):
 
 - Gateway base URL: `http://127.0.0.1:11436`
 - API key: `ollama`
@@ -85,11 +77,15 @@ Leave that terminal open. In Desktop’s gateway form:
 - Model: `claude-sonnet-4-6`
 - Tier: `sonnet`
 
-The proxy rewrites `claude-sonnet-4-6` to local `qwen-code` on port 11434. Cmd+Q Desktop, reopen, Continue with Gateway.
+4. Cmd+Q Desktop, reopen, Continue with Gateway.
 
-If the toggle is missing: Help → Troubleshooting → Enable Developer Mode → Developer → Configure Third-Party Inference.
+The proxy advertises `claude-sonnet-4-6` (Desktop requires an Anthropic-looking id) and rewrites it to local `qwen-code` on port 11434. Confirm the proxy is the one you hit:
 
-If the toggle is missing: Help → Troubleshooting → Enable Developer Mode → Developer → Configure Third-Party Inference → Gateway `http://127.0.0.1:11434`, API key `ollama`.
+```bash
+curl -s http://127.0.0.1:11436/health
+```
+
+You should see `"proxy": "claude-desktop-proxy"`. If that fails, the LaunchAgent is not up — run `claude-desktop-proxy` in a terminal and leave it open.
 
 Cloud connectors that need Anthropic’s backend (Gmail, Drive, and similar) will not work in this mode. `claude-local` in a terminal is the more reliable $0 agent until credits return.
 
@@ -132,3 +128,5 @@ If Activity Monitor memory pressure goes yellow/red, close Chrome tabs or drop c
 ## After reboot
 
 The LaunchAgent at `~/Library/LaunchAgents/com.ollama.mac-env.plist` reapplies localhost bind, keep-alive, MLX, flash attention, 32k context, and a single parallel slot. Open the Ollama app once after login if the API is not up.
+
+The Claude Desktop rewrite proxy relaunches from `~/Library/LaunchAgents/com.local-llm.claude-desktop-proxy.plist` on `127.0.0.1:11436`.
