@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Install Ollama and the local models recommended for a MacBook Pro
-# M3 Pro with 36GB unified memory (plugged in).
+# Install Ollama and Qwen 3.6 27B coding for a MacBook Pro M3 Pro (36GB).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,11 +7,7 @@ OLLAMA_ENV_DST="${HOME}/.ollama/set-mac-env.sh"
 LAUNCH_AGENT_DST="${HOME}/Library/LaunchAgents/com.ollama.mac-env.plist"
 LAUNCH_AGENT_LABEL="com.ollama.mac-env"
 
-WITH_MOE=0
-WITH_DEVSTRAL=0
-WITH_OMNIROUTE=0
 USE_MLX_QUANT=0
-USE_Q8=0
 DRY_RUN=0
 SMOKE_TEST=0
 ALLOW_LINUX=0
@@ -20,17 +15,13 @@ SKIP_MODELS=0
 
 usage() {
   cat <<'EOF'
-Install Ollama and the Qwen 3.6 models that fit a 36GB M3 Pro.
+Install Ollama and Qwen 3.6 27B coding (the local coding model for a 36GB M3 Pro).
 
 Usage:
   ./install.sh [options]
 
 Options:
-  --mlx              Pull the MLX nvfp4 27B coding build (~20GB) instead of Q4
-  --q8               Pull 27B Q8 (~30GB). Tight on 36GB; not recommended
-  --with-moe         Also pull Qwen 3.6 35B-A3B coding (~23GB). Load one at a time
-  --with-devstral    Also pull Devstral 24B for agentic edit-test-fix loops
-  --with-omniroute   Also install OmniRoute (cloud gateway). Off by default; see README
+  --mlx              Pull the MLX nvfp4 coding build (~20GB) instead of Q4 (~18GB)
   --skip-models      Install Ollama and Mac settings only
   --smoke-test       After pull, generate one short reply (loads the 27B into RAM)
   --dry-run          Print what would happen
@@ -53,10 +44,6 @@ run() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mlx) USE_MLX_QUANT=1 ;;
-    --q8) USE_Q8=1 ;;
-    --with-moe) WITH_MOE=1 ;;
-    --with-devstral) WITH_DEVSTRAL=1 ;;
-    --with-omniroute) WITH_OMNIROUTE=1 ;;
     --skip-models) SKIP_MODELS=1 ;;
     --smoke-test) SMOKE_TEST=1 ;;
     --dry-run) DRY_RUN=1 ;;
@@ -111,33 +98,12 @@ PRIMARY_TAG="qwen3.6:27b-coding"
 PRIMARY_ALIAS="qwen-code"
 PRIMARY_SIZE_GB=18
 
-if [[ "${USE_Q8}" -eq 1 && "${USE_MLX_QUANT}" -eq 1 ]]; then
-  die "choose one of --mlx or --q8"
-fi
-if [[ "${USE_Q8}" -eq 1 ]]; then
-  PRIMARY_TAG="qwen3.6:27b-q8_0"
-  PRIMARY_SIZE_GB=30
-  warn "Q8 is ~30GB. On 36GB this will swap if Chrome, Slack, or Cursor are open."
-elif [[ "${USE_MLX_QUANT}" -eq 1 ]]; then
+if [[ "${USE_MLX_QUANT}" -eq 1 ]]; then
   PRIMARY_TAG="qwen3.6:27b-coding-nvfp4"
   PRIMARY_SIZE_GB=20
 fi
 
-MOE_TAG="qwen3.6:35b-a3b-coding"
-MOE_ALIAS="qwen-fast"
-MOE_SIZE_GB=23
-DEVSTRAL_TAG="devstral:24b"
-DEVSTRAL_ALIAS="devstral-agent"
-DEVSTRAL_SIZE_GB=14
-
-NEED_GB="${PRIMARY_SIZE_GB}"
-if [[ "${WITH_MOE}" -eq 1 ]]; then
-  NEED_GB=$((NEED_GB + MOE_SIZE_GB))
-fi
-if [[ "${WITH_DEVSTRAL}" -eq 1 ]]; then
-  NEED_GB=$((NEED_GB + DEVSTRAL_SIZE_GB))
-fi
-NEED_GB=$((NEED_GB + 4))
+NEED_GB=$((PRIMARY_SIZE_GB + 4))
 
 if [[ "${SKIP_MODELS}" -eq 0 && "${FREE_GB}" -gt 0 && "${FREE_GB}" -lt "${NEED_GB}" ]]; then
   die "need about ${NEED_GB}GB free to pull the selected models; ${FREE_GB}GB available."
@@ -348,36 +314,6 @@ pull_models() {
   log "pulling ${PRIMARY_TAG} (~${PRIMARY_SIZE_GB}GB). This can take a while."
   run ollama pull "${PRIMARY_TAG}"
   create_alias "${PRIMARY_ALIAS}" "${PRIMARY_TAG}" "${ROOT}/modelfiles/qwen-code.Modelfile"
-
-  if [[ "${WITH_MOE}" -eq 1 ]]; then
-    log "pulling ${MOE_TAG} (~${MOE_SIZE_GB}GB)"
-    run ollama pull "${MOE_TAG}"
-    create_alias "${MOE_ALIAS}" "${MOE_TAG}" "${ROOT}/modelfiles/qwen-fast.Modelfile"
-  fi
-  if [[ "${WITH_DEVSTRAL}" -eq 1 ]]; then
-    log "pulling ${DEVSTRAL_TAG} (~${DEVSTRAL_SIZE_GB}GB)"
-    run ollama pull "${DEVSTRAL_TAG}"
-    create_alias "${DEVSTRAL_ALIAS}" "${DEVSTRAL_TAG}" "${ROOT}/modelfiles/devstral-agent.Modelfile"
-  fi
-}
-
-maybe_install_omniroute() {
-  [[ "${WITH_OMNIROUTE}" -eq 1 ]] || return 0
-  cat <<'EOF'
-!!  OmniRoute is a multi-provider cloud gateway (local + hundreds of remote APIs).
-!!  It is not required for local Qwen, and on an office laptop it can send prompts
-!!  off the machine as soon as you connect a cloud provider. Continuing anyway.
-EOF
-  if ! command -v npm >/dev/null 2>&1; then
-    if [[ "${DRY_RUN}" -eq 1 ]]; then
-      warn "npm is required for --with-omniroute"
-      return 0
-    fi
-    die "npm is required for --with-omniroute. Install Node, then re-run."
-  fi
-  run npm install -g omniroute
-  log "OmniRoute installed. Start it later with: omniroute"
-  log "Do not point Cursor at it unless you intend traffic to leave this Mac."
 }
 
 smoke_test() {
@@ -408,14 +344,8 @@ Cursor: Settings → Models → OpenAI-compatible
   Model     ${PRIMARY_ALIAS}
   API key   ollama  (any non-empty string)
 
-Load one large model at a time on 36GB. Do not keep ${PRIMARY_ALIAS} and a 35B MoE resident together.
+Point Cursor at that local endpoint for coding support. Code stays on this machine.
 EOF
-  if [[ "${WITH_MOE}" -eq 1 ]]; then
-    printf 'Fast chat:     ollama run %s\n' "${MOE_ALIAS}"
-  fi
-  if [[ "${WITH_DEVSTRAL}" -eq 1 ]]; then
-    printf 'Agent loop:    ollama run %s\n' "${DEVSTRAL_ALIAS}"
-  fi
 }
 
 if [[ "${IS_DARWIN}" -eq 1 ]]; then
@@ -426,6 +356,5 @@ fi
 install_mac_env
 start_ollama
 pull_models
-maybe_install_omniroute
 smoke_test
 print_next_steps
