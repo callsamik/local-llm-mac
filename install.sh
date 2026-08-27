@@ -12,10 +12,11 @@ DRY_RUN=0
 SMOKE_TEST=0
 ALLOW_LINUX=0
 SKIP_MODELS=0
+SKIP_CLAUDE=0
 
 usage() {
   cat <<'EOF'
-Install Ollama and Qwen 3.8 27B (agentic coding + reasoning on a 36GB M3 Pro).
+Install Ollama, Qwen 3.8 27B, and Claude Code pointed at that local model.
 
 Usage:
   ./install.sh [options]
@@ -23,6 +24,7 @@ Usage:
 Options:
   --mlx              Pull the MLX nvfp4 build (~18GB) instead of GGUF Q4
   --skip-models      Install Ollama and Mac settings only
+  --skip-claude      Do not install Claude Code or the claude-local launcher
   --smoke-test       After pull, generate one short reply (loads the 27B into RAM)
   --dry-run          Print what would happen
   --allow-linux      Allow running the Linux Ollama installer (no MLX / LaunchAgent)
@@ -45,6 +47,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --mlx) USE_MLX_QUANT=1 ;;
     --skip-models) SKIP_MODELS=1 ;;
+    --skip-claude) SKIP_CLAUDE=1 ;;
     --smoke-test) SMOKE_TEST=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --allow-linux) ALLOW_LINUX=1 ;;
@@ -327,6 +330,60 @@ smoke_test() {
   ollama run "${PRIMARY_ALIAS}" "Reply with the single word pong."
 }
 
+install_claude_code() {
+  [[ "${SKIP_CLAUDE}" -eq 0 ]] || return 0
+  if command -v claude >/dev/null 2>&1; then
+    log "Claude Code already installed: $(command -v claude)"
+    return 0
+  fi
+
+  log "installing Claude Code (the agent CLI). It will talk to local Qwen, not Anthropic, via claude-local."
+  if command -v brew >/dev/null 2>&1; then
+    if brew info --cask claude-code >/dev/null 2>&1; then
+      run brew install --cask claude-code
+      return 0
+    fi
+    if brew info claude-code >/dev/null 2>&1; then
+      run brew install claude-code
+      return 0
+    fi
+  fi
+
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    printf 'dry-run: curl -fsSL https://claude.ai/install.sh | bash\n'
+    return 0
+  fi
+
+  if curl -fsSL https://claude.ai/install.sh | bash; then
+    return 0
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    log "official installer failed; trying npm"
+    run npm install -g @anthropic-ai/claude-code
+    return 0
+  fi
+
+  warn "could not install Claude Code automatically. Install it, then run: ${HOME}/.local/bin/claude-local"
+}
+
+install_claude_launcher() {
+  [[ "${SKIP_CLAUDE}" -eq 0 ]] || return 0
+  local dest_dir="${HOME}/.local/bin"
+  local dest="${dest_dir}/claude-local"
+  log "installing claude-local launcher to ${dest}"
+  run mkdir -p "${dest_dir}"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    printf 'dry-run: cp %s %s\n' "${ROOT}/scripts/claude-local" "${dest}"
+    return 0
+  fi
+  cp "${ROOT}/scripts/claude-local" "${dest}"
+  chmod 755 "${dest}"
+  if [[ ":${PATH}:" != *":${dest_dir}:"* ]]; then
+    warn "${dest_dir} is not on PATH. Add it, or run ${dest} directly."
+  fi
+}
+
 print_next_steps() {
   cat <<EOF
 
@@ -348,7 +405,14 @@ Cursor / agent harness: OpenAI-compatible
 
 Hard task: send reasoning_effort "high" (or "xhigh" if the client allows it).
 Quick lookup: reasoning_effort "low" or /no_think in the prompt.
-Launch a coding agent: ollama launch claude --model ${PRIMARY_ALIAS}
+
+Claude Code against local Qwen (code stays on this Mac):
+  claude-local
+  # or: ollama launch claude --model ${PRIMARY_ALIAS}
+
+Real Anthropic Claude (subscription / API key): run plain claude
+in a project. Do not export ANTHROPIC_BASE_URL in your shell profile
+or every Claude session will hit Ollama instead of Anthropic.
 EOF
 }
 
@@ -360,5 +424,7 @@ fi
 install_mac_env
 start_ollama
 pull_models
+install_claude_code
+install_claude_launcher
 smoke_test
 print_next_steps

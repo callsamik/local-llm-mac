@@ -7,7 +7,7 @@ One model. Code stays on the laptop. Default reasoning effort is **medium** so i
 ## Install on the Mac
 
 ```bash
-chmod +x install.sh scripts/set-ollama-env.sh
+chmod +x install.sh scripts/set-ollama-env.sh scripts/claude-local
 ./install.sh
 ```
 
@@ -18,21 +18,44 @@ That will:
 3. Enable MLX, flash attention, keep-alive, and a 32k context
 4. Persist those settings across reboot
 5. Pull `qwen3.8:27b` (~18GB) and create the `qwen-code` alias
+6. Install Claude Code and a `claude-local` launcher that points it at that model
 
 Optional: `./install.sh --mlx` pulls `qwen3.8:27b-nvfp4` (still ~18GB, usually faster on Apple Silicon).
 
 Expect a long download.
 
-## Use it as an agent
+## Two ways to “use Claude”
+
+| Command | Brain | Where code goes |
+|---|---|---|
+| `claude-local` | Qwen 3.8 on this Mac | Stays on the laptop |
+| `claude` | Anthropic Claude (your subscription / API key) | Anthropic’s API |
+
+Use both. Do **not** put `ANTHROPIC_BASE_URL=http://127.0.0.1:11434` in `~/.zshrc` — that would send every `claude` session to Ollama and break real Claude.
 
 ```bash
-ollama run qwen-code
+cd /path/to/your/repo
+claude-local
 ```
 
-Or start a coding-agent harness against the local model:
+Same thing, Ollama’s built-in launcher:
 
 ```bash
 ollama launch claude --model qwen-code
+```
+
+If `~/.claude/settings.json` has `CLAUDE_CODE_USE_BEDROCK`, `claude-local` unsets it for that process only. Remove it from the file if Bedrock still wins.
+
+Need `~/.local/bin` on PATH:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+## Use it as a chat model
+
+```bash
+ollama run qwen-code
 ```
 
 Cursor / Continue / Aider (OpenAI-compatible):

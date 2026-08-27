@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Start Claude Code against the local Qwen 3.8 model.
+# Session-only env: does not rewrite your Anthropic subscription or ~/.claude/settings.json.
+set -euo pipefail
+
+MODEL="${CLAUDE_LOCAL_MODEL:-qwen-code}"
+HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
+# OLLAMA_HOST may be host:port already.
+if [[ "${HOST}" != http* ]]; then
+  BASE_URL="http://${HOST}"
+else
+  BASE_URL="${HOST}"
+fi
+
+if ! curl -sf "${BASE_URL}/api/tags" >/dev/null 2>&1; then
+  printf 'error: Ollama is not running at %s\nOpen the Ollama app, then retry.\n' "${BASE_URL}" >&2
+  exit 1
+fi
+
+if [[ -f "${HOME}/.claude/settings.json" ]] && grep -q 'CLAUDE_CODE_USE_BEDROCK' "${HOME}/.claude/settings.json" 2>/dev/null; then
+  printf 'warning: ~/.claude/settings.json sets CLAUDE_CODE_USE_BEDROCK.\n' >&2
+  printf '         ollama launch claude may still send traffic to Bedrock.\n' >&2
+  printf '         This launcher unsets it for this process only.\n' >&2
+fi
+
+# Do not leak a real Anthropic key into the local session.
+unset CLAUDE_CODE_USE_BEDROCK
+unset AWS_REGION AWS_DEFAULT_REGION
+export ANTHROPIC_AUTH_TOKEN="ollama"
+export ANTHROPIC_API_KEY=""
+export ANTHROPIC_BASE_URL="${BASE_URL}"
+
+if command -v ollama >/dev/null 2>&1 && ollama launch --help >/dev/null 2>&1; then
+  exec ollama launch claude --model "${MODEL}" --yes -- "$@"
+fi
+
+if command -v claude >/dev/null 2>&1; then
+  exec claude --model "${MODEL}" "$@"
+fi
+
+printf 'error: Claude Code CLI not found.\nInstall it, then retry. On a Mac:\n  curl -fsSL https://claude.ai/install.sh | bash\nor:\n  npm install -g @anthropic-ai/claude-code\n' >&2
+exit 1
