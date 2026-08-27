@@ -10,9 +10,15 @@ from llm_router.scoring.effort import merge_client_effort_thinking
 def rewrite_for_local(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data)
     out["model"] = Cfg.local_model
-    thinking = out.get("thinking")
-    if isinstance(thinking, dict):
-        out["thinking"] = {"type": "disabled"}
+    # Drop Anthropic-style thinking blocks — Ollama uses its own `think` flag.
+    # Do not force think off for 14B (that workaround was for 27B quirks).
+    out.pop("thinking", None)
+    mode = Cfg.local_think
+    if mode in {"0", "false", "off", "never", "no"}:
+        out["think"] = False
+    elif mode in {"1", "true", "on", "always", "yes"}:
+        out["think"] = True
+    # auto / unset: leave model default (no think field)
     # Local Ollama path does not use Anthropic effort.
     if "output_config" in out:
         oc = dict(out["output_config"]) if isinstance(out["output_config"], dict) else {}

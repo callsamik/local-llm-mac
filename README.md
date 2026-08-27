@@ -61,7 +61,7 @@ Unload 27B if installed and you want RAM for the router path: `ollama stop qwen-
 
 Use **cmux / terminal** with `claude-routed` or `claude-local` — not Cursor Agent (Agent traffic goes through Cursor’s servers and still bills usage).
 
-Thinking on local Qwen: use `--think=false` / API `"think": false` — do not rely on `/no_think` alone.
+Thinking on local Qwen **14B**: left at the model default (router does **not** force `think=false`). Optional override: `ROUTER_LOCAL_THINK=on|off|auto`. The old force-off workaround was for **27B** quirks. The tiny local *classify* call still uses `think=false` for speed.
 
 Do **not** put `ANTHROPIC_BASE_URL=…` permanently in `~/.zshrc`.
 
@@ -173,7 +173,7 @@ ollama run qwen-code
 |---|---|
 | Multi-file bug / long unsupervised run | `"reasoning_effort": "high"` (hosted frontier, or 27B local) |
 | Normal agent coding | default |
-| Quick lookup | `"think": false` / `ollama run … --think=false` |
+| Quick lookup | optional `ROUTER_LOCAL_THINK=off` / `ollama run … --think=false` |
 
 ## Context on 36GB
 

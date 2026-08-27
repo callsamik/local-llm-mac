@@ -52,3 +52,6 @@ class Cfg:
     disable_fable = not enable_fable
     # Local LLM scorer timeout (seconds) when heuristics need help
     llm_classify_timeout = float(os.environ.get("ROUTER_LLM_CLASSIFY_TIMEOUT", "12"))
+    # Ollama think for the local chat lane: auto (default) | on | off
+    # 14B does not need the old 27B "force think off" workaround; auto leaves model default.
+    local_think = os.environ.get("ROUTER_LOCAL_THINK", "auto").strip().lower()

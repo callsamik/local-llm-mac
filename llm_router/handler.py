@@ -60,6 +60,7 @@ def make_handler_class(deps: HandlerDeps) -> type[BaseHTTPRequestHandler]:
                         "llm_classify": Cfg.llm_classify,
                         "llm_classify_timeout": Cfg.llm_classify_timeout,
                         "llm_score_model": Cfg.local_model,
+                        "local_think": Cfg.local_think,
                     },
                 )
                 return
