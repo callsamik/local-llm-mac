@@ -41,6 +41,14 @@ check "show me the auth module" local
 check "ping" local
 check "whats this function doing" local
 
+# reason (local DeepSeek-R1: algorithms / maths / logic)
+check "what is the time complexity of this algorithm" reason
+check "explain the dynamic programming solution" reason
+check "check my logic for this off-by-one" reason
+check "is my math correct here" reason
+check "reason through why this invariant holds" reason
+check "which data structure is faster for lookups" reason
+
 # haiku (everyday coding)
 check "implement a login form with validation" haiku
 check "add a unit test for parseDate" haiku
@@ -52,6 +60,7 @@ check "refactor the billing helper" haiku
 check "wire up the webhook handler" haiku
 check "pls make a login page" haiku
 check "whip up a unit test for parseDate" haiku
+check "implement dijkstra shortest path algorithm" haiku
 
 # hard work stays on sonnet while opus/fable flags are off (default)
 check "memory leak in the worker pool" sonnet
@@ -66,6 +75,7 @@ check "can you dig into why payments fail randomly" sonnet
 check "root cause the flaky payment race condition across services" sonnet
 check "design the architecture for a multi-service migration" sonnet
 check "company-wide migration of the platform" sonnet
+check "prove correctness of the lock-free queue algorithm" sonnet
 
 # explicit ask still gated by enable flags (default off → sonnet)
 check "use fable for this hardest problem" sonnet
@@ -73,6 +83,7 @@ check "use opus for this security audit" sonnet
 
 # effort / thinking defaults (flags off → sonnet caps)
 check_meta "rename the helper and fix the typo" local null off
+check_meta "what is the time complexity of this algorithm" reason null adaptive
 check_meta "implement a login form with validation" haiku low off
 check_meta "memory leak in the worker pool" sonnet medium adaptive
 check_meta "security audit of the auth flow" sonnet high adaptive
@@ -88,15 +99,16 @@ m = SourceFileLoader("llm_router", sys.argv[1]).load_module()
 # Defaults: opus/fable off
 assert m.Cfg.enable_opus is False
 assert m.Cfg.enable_fable is False
-assert m.cascade_from("fable") == ["sonnet", "haiku", "local"]
-assert m.cascade_from("cheap") == ["haiku", "local"]
+assert m.cascade_from("fable") == ["sonnet", "haiku", "reason", "local"]
+assert m.cascade_from("cheap") == ["haiku", "reason", "local"]
+assert m.cascade_from("reason") == ["reason", "local"]
 
 # Enable both → full cascade from fable
 m.Cfg.enable_opus = True
 m.Cfg.enable_fable = True
 m.Cfg.disable_opus = False
 m.Cfg.disable_fable = False
-assert m.cascade_from("fable") == ["fable", "opus", "sonnet", "haiku", "local"]
+assert m.cascade_from("fable") == ["fable", "opus", "sonnet", "haiku", "reason", "local"]
 
 # Category auto-assign when enabled
 d = m.score_route(
@@ -147,6 +159,66 @@ payload = m.rewrite_for_hosted({"messages": []}, "claude-sonnet-4-6", "high", "a
 assert payload["output_config"]["effort"] == "high"
 
 print("ok  cascade / enable-flag / frontier helpers")
+
+# reason lane helpers
+assert m.normalize_lane("r1") == "reason"
+assert m.normalize_lane("deepseek") == "reason"
+assert m.model_for_lane("reason") == m.Cfg.reason_model
+assert m.local_fallback_lane("sonnet") == "reason"
+assert m.local_fallback_lane("opus") == "reason"
+assert m.local_fallback_lane("haiku") == "local"
+assert m.local_fallback_lane("reason") == "reason"
+assert m.local_fallback_lane("local") == "local"
+assert m.rewrite_for_local({"messages": []})["model"] == m.Cfg.local_model
+assert m.rewrite_for_local({"messages": []}, "reason")["model"] == m.Cfg.reason_model
+
+# No cloud auth: hard prompt → reason, medium → local
+RouteDecider = sys.modules["llm_router.routing"].RouteDecider
+CompositeScorer = sys.modules["llm_router.scoring.composite"].CompositeScorer
+InMemorySessionStore = sys.modules["llm_router.session"].InMemorySessionStore
+
+
+class NoCloud:
+    def cloud_auth_ready(self, headers):
+        return False
+
+
+def decide(text, headers=None):
+    decider = RouteDecider(CompositeScorer(), InMemorySessionStore(), NoCloud())
+    return decider.decide(headers or {}, {"messages": [{"role": "user", "content": text}]})
+
+
+import os
+os.environ["ROUTER_CLASSIFY_OFFLINE"] = "1"
+assert decide("memory leak in the worker pool").lane == "reason"
+assert decide("implement a login form with validation").lane == "local"
+assert decide("anything", {"x-route": "sonnet"}).lane == "reason"
+assert decide("anything", {"x-route": "r1"}).lane == "reason"
+print("ok  reason lane helpers / cloud-unavailable fallback")
+
+# Idle unloader: unload only after the last in-flight request is idle
+import time
+IdleUnloader = sys.modules["llm_router.idle_unload"].IdleUnloader
+unloaded = []
+u = IdleUnloader(0.05, unloaded.append)
+u.hold("deepseek-reason")
+u.hold("deepseek-reason")
+u.release("deepseek-reason")
+time.sleep(0.1)
+assert unloaded == [], unloaded
+u.release("deepseek-reason")
+u.hold("deepseek-reason")
+time.sleep(0.1)
+assert unloaded == [], unloaded
+u.release("deepseek-reason")
+time.sleep(0.15)
+assert unloaded == ["deepseek-reason"], unloaded
+off = IdleUnloader(0, unloaded.append)
+off.hold("x")
+off.release("x")
+time.sleep(0.05)
+assert unloaded == ["deepseek-reason"], unloaded
+print("ok  idle unloader")
 PY
 
 echo "all classification checks passed"

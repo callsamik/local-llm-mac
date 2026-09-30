@@ -38,6 +38,12 @@ class RouteDeciderPort(Protocol):
     def decide(self, headers: dict[str, str], data: dict[str, Any]) -> RouteDecision: ...
 
 
+class ModelUnloader(Protocol):
+    def hold(self, model: str) -> None: ...
+
+    def release(self, model: str) -> None: ...
+
+
 class UpstreamClient(Protocol):
     def exchange(
         self,

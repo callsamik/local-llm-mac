@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Pull qwen3:14b, create qwen-fast alias, install router + claude-routed.
+# Pull qwen3:14b + deepseek-r1:14b, create qwen-fast / deepseek-reason aliases,
+# install router + claude-routed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,6 +21,12 @@ ollama pull qwen3:14b
 
 log "creating alias qwen-fast"
 ollama create qwen-fast -f "${ROOT}/modelfiles/qwen-code-14b.Modelfile"
+
+log "pulling deepseek-r1:14b (~9GB) for the reason lane"
+ollama pull deepseek-r1:14b
+
+log "creating alias deepseek-reason"
+ollama create deepseek-reason -f "${ROOT}/modelfiles/deepseek-reason-14b.Modelfile"
 
 log "installing llm-router + claude-routed"
 rm -rf "${SHARE}/llm_router"
@@ -93,6 +100,7 @@ done
 
 log "smoke: classify a few prompts"
 python3 "${SHARE}/llm-router.py" --classify "rename the helper and fix the typo"
+python3 "${SHARE}/llm-router.py" --classify "what is the time complexity of this algorithm"
 python3 "${SHARE}/llm-router.py" --classify "implement a login form with validation"
 python3 "${SHARE}/llm-router.py" --classify "root cause the flaky payment race condition across services"
 
@@ -114,10 +122,11 @@ Done.
    cd /path/to/repo
    claude-routed
 
-Lanes (auto): local → haiku → sonnet (+ effort/thinking)
+Lanes (auto): local → reason (deepseek-reason) → haiku → sonnet (+ effort/thinking)
+  reason unloads after 10 min idle (ROUTER_REASON_IDLE_UNLOAD=600; <=0 keeps it loaded)
 Optional costly tiers: ROUTER_ENABLE_OPUS=1 / ROUTER_ENABLE_FABLE=1
   (then category scores/phrases may forward to opus/fable)
-Cascade down to local on errors (ROUTER_CASCADE=1)
+Cascade down to reason → local on errors (ROUTER_CASCADE=1)
 Auth: Claude Code OAuth (preferred) or API key
 Overrides: x-route / ROUTER_FORCE · also gated by ENABLE flags
 

@@ -85,6 +85,7 @@ class CompositeScorer:
                     else:
                         score = {
                             "local": 0,
+                            "reason": 1,
                             "haiku": 1,
                             "sonnet": 2,
                             "opus": 4,

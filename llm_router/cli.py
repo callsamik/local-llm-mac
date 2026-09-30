@@ -15,13 +15,14 @@ from llm_router.scoring.composite import score_route
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Route Claude Code across local Qwen and Claude Haiku/Sonnet/Opus/Fable "
-            "with cascade failover down to local."
+            "Route Claude Code across local Qwen, local DeepSeek-R1 and Claude "
+            "Haiku/Sonnet/Opus/Fable with cascade failover down to local."
         )
     )
     parser.add_argument("--host", default=Cfg.listen_host)
     parser.add_argument("--port", type=int, default=Cfg.listen_port)
     parser.add_argument("--local-model", default=Cfg.local_model)
+    parser.add_argument("--reason-model", default=Cfg.reason_model)
     parser.add_argument("--haiku-model", default=Cfg.haiku_model)
     parser.add_argument("--sonnet-model", default=Cfg.sonnet_model)
     parser.add_argument("--opus-model", default=Cfg.opus_model)
@@ -47,6 +48,7 @@ def main() -> None:
     Cfg.listen_host = args.host
     Cfg.listen_port = args.port
     Cfg.local_model = args.local_model
+    Cfg.reason_model = args.reason_model
     Cfg.haiku_model = args.cheap_model or args.haiku_model
     Cfg.sonnet_model = args.cloud_model or args.frontier_model or args.sonnet_model
     Cfg.opus_model = args.opus_model
@@ -77,7 +79,7 @@ def main() -> None:
 
     print(
         f"llm-router  http://{Cfg.listen_host}:{Cfg.listen_port}  "
-        f"local={Cfg.local_model}  haiku={Cfg.haiku_model}  "
+        f"local={Cfg.local_model}  reason={Cfg.reason_model}  haiku={Cfg.haiku_model}  "
         f"sonnet={Cfg.sonnet_model}  opus={Cfg.opus_model}  "
         f"fable={Cfg.fable_model}@{Cfg.cloud_upstream}  "
         f"cascade={'on' if Cfg.cascade else 'off'}",
@@ -92,7 +94,8 @@ def main() -> None:
         )
     else:
         print(
-            "warning: no API key and no Claude Code OAuth — hosted lanes fall back to local\n"
+            "warning: no API key and no Claude Code OAuth — hosted lanes fall back to local "
+            "(hard prompts → reason)\n"
             "         Log in with: claude  (once), then restart llm-router",
             flush=True,
         )

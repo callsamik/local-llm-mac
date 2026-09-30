@@ -4,7 +4,9 @@ from __future__ import annotations
 from http.server import ThreadingHTTPServer
 
 from llm_router.auth import AuthService
+from llm_router.config import Cfg
 from llm_router.handler import HandlerDeps, make_handler_class
+from llm_router.idle_unload import IdleUnloader
 from llm_router.routing import RouteDecider
 from llm_router.scoring.composite import CompositeScorer
 from llm_router.scoring.heuristic import HeuristicScorer
@@ -26,6 +28,7 @@ def build_handler_deps() -> HandlerDeps:
             route_decider=RouteDecider(scorer, sessions, auth),
             auth=auth,
             upstream=HttpUpstreamClient(),
+            reason_unloader=IdleUnloader(Cfg.reason_idle_unload),
         )
     return _default_deps
 

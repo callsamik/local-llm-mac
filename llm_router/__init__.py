@@ -12,6 +12,7 @@ from llm_router.auth import (
 from llm_router.cascade import (
     cascade_from,
     lane_allowed,
+    local_fallback_lane,
     model_for_lane,
     normalize_lane,
     should_failover_status,
@@ -30,9 +31,17 @@ from llm_router.catalog import (
     OPUS_PHRASES,
     OPT_IN_FABLE,
     OPT_IN_OPUS,
+    REASON_PATTERNS,
 )
 from llm_router.config import Cfg
-from llm_router.models import AUTO_LANES, EFFORT_LEVELS, HOSTED_LANES, LANE_ORDER, RouteDecision
+from llm_router.models import (
+    AUTO_LANES,
+    EFFORT_LEVELS,
+    HOSTED_LANES,
+    LANE_ORDER,
+    LOCAL_LANES,
+    RouteDecision,
+)
 from llm_router.rewrite import rewrite_for_hosted, rewrite_for_local
 from llm_router.routing import decide_route
 from llm_router.scoring import score_route
@@ -56,11 +65,13 @@ __all__ = [
     "LANE_ORDER",
     "AUTO_LANES",
     "HOSTED_LANES",
+    "LOCAL_LANES",
     "EFFORT_LEVELS",
     "HARD_PATTERNS",
     "MEDIUM_VERBS",
     "MEDIUM_STACK",
     "EASY_PATTERNS",
+    "REASON_PATTERNS",
     "OPUS_HARD_PHRASES",
     "FABLE_HARD_PHRASES",
     "OPUS_PHRASES",
@@ -82,6 +93,7 @@ __all__ = [
     "normalize_lane",
     "model_for_lane",
     "lane_allowed",
+    "local_fallback_lane",
     "cascade_from",
     "should_failover_status",
     "rewrite_for_local",

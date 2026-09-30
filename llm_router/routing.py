@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from llm_router.cascade import lane_allowed, normalize_lane
+from llm_router.cascade import lane_allowed, local_fallback_lane, normalize_lane
 from llm_router.config import Cfg
 from llm_router.models import HOSTED_LANES, RouteDecision
 from llm_router.protocols import AuthProvider, RouteScorer, SessionStore
@@ -26,7 +26,7 @@ class RouteDecider:
 
     def decide(self, headers: dict[str, str], data: dict[str, Any]) -> RouteDecision:
         override = normalize_lane(headers.get("x-route") or Cfg.force or "")
-        if override in {"local", "haiku", "sonnet", "opus", "fable"}:
+        if override in {"local", "reason", "haiku", "sonnet", "opus", "fable"}:
             if not lane_allowed(override):
                 fallback = "sonnet"
                 effort, thinking = effort_thinking_for(fallback, 4)
@@ -38,15 +38,17 @@ class RouteDecider:
                     effort,
                     thinking,
                 )
+            score = {"local": 0, "reason": 1, "haiku": 1, "sonnet": 2, "opus": 4, "fable": 6}[override]
             if override in HOSTED_LANES and not self._auth.cloud_auth_ready(headers):
+                fallback = local_fallback_lane(override)
+                effort, thinking = effort_thinking_for(fallback, score)
                 return RouteDecision(
-                    "local",
-                    f"cloud-unavailable→local (override:{override})",
-                    0,
-                    None,
-                    "off",
+                    fallback,
+                    f"cloud-unavailable→{fallback} (override:{override})",
+                    score,
+                    effort,
+                    thinking,
                 )
-            score = {"local": 0, "haiku": 1, "sonnet": 2, "opus": 4, "fable": 6}[override]
             effort, thinking = effort_thinking_for(override, score)
             effort, thinking = merge_client_effort_thinking(data, effort, thinking)
             return RouteDecision(override, f"override:{override}", score, effort, thinking)
@@ -67,12 +69,14 @@ class RouteDecider:
         decision.lane = normalize_lane(decision.lane) or decision.lane
 
         if decision.lane in HOSTED_LANES and not self._auth.cloud_auth_ready(headers):
+            fallback = local_fallback_lane(decision.lane)
+            effort, thinking = effort_thinking_for(fallback, decision.score)
             return RouteDecision(
-                "local",
-                f"cloud-unavailable→local ({decision.reason})",
+                fallback,
+                f"cloud-unavailable→{fallback} ({decision.reason})",
                 decision.score,
-                None,
-                "off",
+                effort,
+                thinking,
             )
 
         self._sessions.put(key, decision)

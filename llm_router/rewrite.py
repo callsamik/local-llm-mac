@@ -7,13 +7,13 @@ from llm_router.config import Cfg
 from llm_router.scoring.effort import merge_client_effort_thinking
 
 
-def rewrite_for_local(data: dict[str, Any]) -> dict[str, Any]:
+def rewrite_for_local(data: dict[str, Any], lane: str = "local") -> dict[str, Any]:
     out = dict(data)
-    out["model"] = Cfg.local_model
+    out["model"] = Cfg.reason_model if lane == "reason" else Cfg.local_model
     # Drop Anthropic-style thinking blocks — Ollama uses its own `think` flag.
     # Do not force think off for 14B (that workaround was for 27B quirks).
     out.pop("thinking", None)
-    mode = Cfg.local_think
+    mode = Cfg.reason_think if lane == "reason" else Cfg.local_think
     if mode in {"0", "false", "off", "never", "no"}:
         out["think"] = False
     elif mode in {"1", "true", "on", "always", "yes"}:

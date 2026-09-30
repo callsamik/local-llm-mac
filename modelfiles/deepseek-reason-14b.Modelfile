@@ -1,0 +1,10 @@
+# Local reasoning lane: DeepSeek-R1 distill (Qwen2.5 14B base, ~9GB).
+# Router sends algorithm / maths / logic prompts here, and hard prompts when
+# hosted Claude is unavailable. R1 always emits a reasoning trace, so leave
+# room in num_predict. DeepSeek recommends temperature 0.5–0.7 and no system
+# prompt (Claude Code supplies its own).
+FROM deepseek-r1:14b
+PARAMETER num_ctx 24576
+PARAMETER num_predict 8192
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95

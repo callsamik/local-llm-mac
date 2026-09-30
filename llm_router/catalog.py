@@ -144,6 +144,43 @@ MEDIUM_VERBS = [
     r"\bdeserialize\b",
 ]
 
+# Self-contained reasoning (algorithms, maths, logic) → local reason lane.
+# Loses to hard (sonnet) and medium coding (haiku); beats easy (local).
+REASON_PATTERNS = [
+    r"\balgorithm(s|ic)?\b",
+    r"\b(time|space)\s+complexity\b",
+    r"\bbig[- ]?o\b",
+    r"\bo\(\s*(n|1|log)",
+    r"\bcomplexity\s+analysis\b",
+    r"\basymptotic\b",
+    r"\bdynamic\s+programming\b",
+    r"\brecurrence\s+relation\b",
+    r"\bgraph\s+theory\b",
+    r"\bshortest\s+path\b",
+    r"\bnp[- ]?(hard|complete)\b",
+    r"\binvariants?\b",
+    r"\bproof\b",
+    r"\bprove\s+that\b",
+    r"\bderive\b",
+    r"\bderivation\b",
+    r"\bmath(s|ematical|ematically)?\b",
+    r"\bequations?\b",
+    r"\bprobabilit(y|ies)\b",
+    r"\bcombinatori(cs|al)\b",
+    r"\bmodular\s+arithmetic\b",
+    r"\bbit\s+manipulation\b",
+    r"\bpuzzles?\b",
+    r"\briddle\b",
+    r"\bbrain\s*teaser\b",
+    r"\boff[- ]by[- ]one\b",
+    r"\breason\s+(through|about)\b",
+    r"\bthink\s+through\b",
+    r"\bwork\s+through\b",
+    r"\bcheck\s+my\s+(logic|reasoning|math|proof)\b",
+    r"\bis\s+(this|my)\s+(logic|reasoning|proof|math)\s+(correct|right|sound)\b",
+    r"\bwhich\s+(approach|algorithm|data\s+structure)\s+is\s+(better|faster)\b",
+]
+
 # Stack/tech cues only count when a medium verb also matched.
 MEDIUM_STACK = [
     r"\bcoverage\b",

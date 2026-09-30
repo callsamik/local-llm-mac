@@ -4,9 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # Highest → lowest. Failover walks downward; local is last resort.
-LANE_ORDER = ["fable", "opus", "sonnet", "haiku", "local"]
-AUTO_LANES = {"local", "haiku", "sonnet"}
+LANE_ORDER = ["fable", "opus", "sonnet", "haiku", "reason", "local"]
+AUTO_LANES = {"local", "reason", "haiku", "sonnet"}
 HOSTED_LANES = {"haiku", "sonnet", "opus", "fable"}
+LOCAL_LANES = {"local", "reason"}
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 

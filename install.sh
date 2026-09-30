@@ -26,8 +26,8 @@ usage() {
   cat <<'EOF'
 Install Ollama, Qwen 14B + heuristic router (primary), Claude Code, and helpers.
 
-Default (36GB Mac): qwen-fast (14B) + llm-router + claude-routed
-  local → Haiku → Sonnet → Opus → Fable (cascade to local on errors; Claude Code OAuth)
+Default (36GB Mac): qwen-fast + deepseek-reason (14B each) + llm-router + claude-routed
+  local → reason → Haiku → Sonnet → Opus → Fable (cascade to local on errors; Claude Code OAuth)
 
 Usage:
   ./install.sh [options]
@@ -35,7 +35,7 @@ Usage:
 Options:
   --with-27b         Also pull Qwen 3.8 27B as qwen-code (optional; more RAM)
   --mlx              With 27B: pull MLX nvfp4 instead of GGUF Q4 (implies --with-27b)
-  --skip-router      Do not install llm-router / claude-routed / 14B pull via setup
+  --skip-router      Do not install llm-router / claude-routed / 14B pulls via setup
   --skip-models      Install Ollama, Mac settings, and proxies only
   --skip-claude      Do not install Claude Code or launchers
   --smoke-test       After pull, generate one short reply (loads a model into RAM)
@@ -240,6 +240,8 @@ fi
 PRIMARY_TAG="qwen3:14b"
 PRIMARY_ALIAS="qwen-fast"
 PRIMARY_SIZE_GB=10
+# Reason lane (pulled by setup-14b-router.sh).
+REASON_SIZE_GB=9
 
 LEGACY_TAG="qwen3.8:27b"
 LEGACY_ALIAS="qwen-code"
@@ -250,6 +252,9 @@ if [[ "${USE_MLX_QUANT}" -eq 1 ]]; then
 fi
 
 NEED_GB=${PRIMARY_SIZE_GB}
+if [[ "${SKIP_ROUTER}" -eq 0 ]]; then
+  NEED_GB=$((NEED_GB + REASON_SIZE_GB))
+fi
 if [[ "${WITH_27B}" -eq 1 ]]; then
   NEED_GB=$((NEED_GB + LEGACY_SIZE_GB))
 fi
@@ -498,7 +503,7 @@ install_router() {
   }
   local setup="${ROOT}/scripts/setup-14b-router.sh"
   [[ -f "${setup}" ]] || die "missing ${setup}"
-  log "installing 14B qwen-fast + llm-router + claude-routed (primary path)"
+  log "installing 14B qwen-fast + deepseek-reason + llm-router + claude-routed (primary path)"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     printf 'dry-run: bash %s\n' "${setup}"
     return 0
@@ -519,7 +524,7 @@ exec python3 "${share}/llm-router.py" "\$@"
 EOF
     chmod 755 "${bin}/llm-router" "${bin}/claude-routed"
     ensure_local_bin_on_path "${bin}"
-    warn "models skipped; run ./scripts/setup-14b-router.sh later to pull qwen3:14b"
+    warn "models skipped; run ./scripts/setup-14b-router.sh later to pull qwen3:14b + deepseek-r1:14b"
     return 0
   fi
   bash "${setup}"

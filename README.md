@@ -1,16 +1,17 @@
 # Local coding agent for a 36GB M3 Pro
 
-**Primary install:** Ollama + **Qwen3 14B** (`qwen-fast`) + **heuristic router** (`claude-routed`):
+**Primary install:** Ollama + **Qwen3 14B** (`qwen-fast`) + **DeepSeek-R1 14B** (`deepseek-reason`) + **heuristic router** (`claude-routed`):
 
 | Lane | Model |
 |------|--------|
 | local | Qwen 14B on the Mac |
+| reason | DeepSeek-R1 14B on the Mac (aliases: `r1`, `deepseek`) |
 | haiku | Claude Haiku (alias: `cheap`) |
 | sonnet | Claude Sonnet (aliases: `frontier`, `cloud`) |
 | opus | Claude Opus |
 | fable | Claude Fable (top tier) |
 
-On model-not-found / rate-limit / upstream errors, the router **cascades down** that ladder and ultimately falls back to local (`ROUTER_CASCADE=1` by default).
+On model-not-found / rate-limit / upstream errors, the router **cascades down** that ladder and ultimately falls back to local (`ROUTER_CASCADE=1` by default). Without Claude auth, hard prompts (sonnet and above) go to **reason** and everyday coding to **local**.
 
 Optional: `--with-27b` also installs Qwen 3.8 27B as `qwen-code` for heavy local-only runs.
 
@@ -28,7 +29,7 @@ That will:
 
 1. Install Ollama (Homebrew if present, otherwise the official app into `~/Applications`)
 2. Bind the API to `127.0.0.1:11434` and persist Mac env (MLX, flash attention, keep-alive, context)
-3. Pull **`qwen3:14b`**, create **`qwen-fast`**, install **`llm-router`** + **`claude-routed`** (LaunchAgent on `:11437`)
+3. Pull **`qwen3:14b`** + **`deepseek-r1:14b`**, create **`qwen-fast`** + **`deepseek-reason`**, install **`llm-router`** + **`claude-routed`** (LaunchAgent on `:11437`)
 4. Install Claude Code and **`claude-local`** (side chat / forced local)
 5. Install the Claude Desktop rewrite proxy on `127.0.0.1:11436`
 
@@ -50,7 +51,7 @@ Already have Ollama? Router-only upgrade:
 
 ```bash
 claude                 # once: Claude Code CLI login (subscription)
-claude-routed          # router: local → Haiku → Sonnet → Opus → Fable (+ cascade)
+claude-routed          # router: local → reason → Haiku → Sonnet → Opus → Fable (+ cascade)
 ```
 
 Forced local only: `claude-local`.
@@ -62,6 +63,8 @@ Unload 27B if installed and you want RAM for the router path: `ollama stop qwen-
 Use **cmux / terminal** with `claude-routed` or `claude-local` — not Cursor Agent (Agent traffic goes through Cursor’s servers and still bills usage).
 
 Thinking on local Qwen **14B**: left at the model default (router does **not** force `think=false`). Optional override: `ROUTER_LOCAL_THINK=on|off|auto`. The old force-off workaround was for **27B** quirks. The tiny local *classify* call still uses `think=false` for speed.
+
+**Reason lane (DeepSeek-R1 14B):** always emits a reasoning trace (slower than `qwen-fast`). Model `ROUTER_REASON_MODEL` (default `deepseek-reason`), think override `ROUTER_REASON_THINK=on|off|auto`. With `OLLAMA_KEEP_ALIVE=-1` both 14Bs would stay resident (~18 GB), so the router unloads the reason model after **10 min idle** (`ROUTER_REASON_IDLE_UNLOAD=600`; `<=0` keeps it loaded). `qwen-fast` stays loaded.
 
 Do **not** put `ANTHROPIC_BASE_URL=…` permanently in `~/.zshrc`.
 
@@ -78,6 +81,7 @@ Protocols live in each package’s `protocols.py`. Wire-up is only in `compositi
 | Lane | Model | Typical asks |
 |------|--------|----------------|
 | **local** | `qwen-fast` | rename, explain, list files |
+| **reason** | `deepseek-reason` | algorithms, complexity, maths, logic, “check my reasoning” · always reasons |
 | **haiku** | Haiku | implement / fix / add tests · effort `low` · thinking off |
 | **sonnet** | Sonnet | harder bugs → org-wide hard · effort `medium`/`high`/`xhigh` · thinking on |
 | **opus** | Opus | Enabled via `ROUTER_ENABLE_OPUS=1` — security/incident/race/deep architecture |
@@ -127,13 +131,13 @@ Accepted values: `1`, `true`, `yes`, `on`. Off = unset / `0` / `false`.
 
 **Cascade:** selected lane → lower tiers → **local** last (`ROUTER_CASCADE=1`). Disabled opus/fable are skipped.
 
-Model **versions** stay env-pinned (`ROUTER_HAIKU_MODEL`, `ROUTER_SONNET_MODEL`, `ROUTER_OPUS_MODEL`, `ROUTER_FABLE_MODEL`).
+Model **versions** stay env-pinned (`ROUTER_REASON_MODEL`, `ROUTER_HAIKU_MODEL`, `ROUTER_SONNET_MODEL`, `ROUTER_OPUS_MODEL`, `ROUTER_FABLE_MODEL`).
 
 Hosted lanes use **Claude Code CLI OAuth** (no `ANTHROPIC_API_KEY` required).
 
 Scoring layers: regex → informal phrases → structural cues → **local Qwen score** when needed (`ROUTER_LLM_CLASSIFY=auto`). The local model returns JSON `{lane, score, effort}` to refine borderline / conflicting / uncertain prompts; heuristics win if Ollama is down. Force always/never with `ROUTER_LLM_CLASSIFY=always|never`. Timeout: `ROUTER_LLM_CLASSIFY_TIMEOUT` (default 12s).
 
-Overrides: `x-route` / `ROUTER_FORCE` = `local|haiku|sonnet|opus|fable` (legacy `cheap`→haiku, `frontier`/`cloud`→sonnet).
+Overrides: `x-route` / `ROUTER_FORCE` = `local|reason|haiku|sonnet|opus|fable` (`r1`/`deepseek`→reason; legacy `cheap`→haiku, `frontier`/`cloud`→sonnet).
 
 ```bash
 curl -s http://127.0.0.1:11437/health

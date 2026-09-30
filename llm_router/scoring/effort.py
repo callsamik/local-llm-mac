@@ -100,6 +100,9 @@ def effort_thinking_for(
     """Defaults for a lane given severity score and optional ask flags."""
     if lane == "local":
         return None, "off"
+    if lane == "reason":
+        # DeepSeek-R1 always emits a reasoning trace; no Anthropic effort.
+        return None, "adaptive"
     if lane == "haiku":
         return "low", "off"
     if lane == "sonnet":

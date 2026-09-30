@@ -7,10 +7,15 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler
 from typing import Any
 
-from llm_router.cascade import cascade_from, model_for_lane, should_failover_status
+from llm_router.cascade import (
+    cascade_from,
+    local_fallback_lane,
+    model_for_lane,
+    should_failover_status,
+)
 from llm_router.config import Cfg
-from llm_router.models import AUTO_LANES, LANE_ORDER
-from llm_router.protocols import AuthProvider, RouteDeciderPort, UpstreamClient
+from llm_router.models import AUTO_LANES, LANE_ORDER, LOCAL_LANES
+from llm_router.protocols import AuthProvider, ModelUnloader, RouteDeciderPort, UpstreamClient
 from llm_router.rewrite import rewrite_for_hosted, rewrite_for_local
 from llm_router.scoring.effort import defaults_for_failover_lane
 
@@ -20,6 +25,7 @@ class HandlerDeps:
     route_decider: RouteDeciderPort
     auth: AuthProvider
     upstream: UpstreamClient
+    reason_unloader: ModelUnloader | None = None
 
 
 def make_handler_class(deps: HandlerDeps) -> type[BaseHTTPRequestHandler]:
@@ -46,6 +52,7 @@ def make_handler_class(deps: HandlerDeps) -> type[BaseHTTPRequestHandler]:
                         "local_upstream": Cfg.local_upstream,
                         "cloud_upstream": Cfg.cloud_upstream,
                         "local_model": Cfg.local_model,
+                        "reason_model": Cfg.reason_model,
                         "haiku_model": Cfg.haiku_model,
                         "sonnet_model": Cfg.sonnet_model,
                         "opus_model": Cfg.opus_model,
@@ -61,6 +68,8 @@ def make_handler_class(deps: HandlerDeps) -> type[BaseHTTPRequestHandler]:
                         "llm_classify_timeout": Cfg.llm_classify_timeout,
                         "llm_score_model": Cfg.local_model,
                         "local_think": Cfg.local_think,
+                        "reason_think": Cfg.reason_think,
+                        "reason_idle_unload": Cfg.reason_idle_unload,
                     },
                 )
                 return
@@ -75,11 +84,13 @@ def make_handler_class(deps: HandlerDeps) -> type[BaseHTTPRequestHandler]:
                                 "object": "model",
                                 "owned_by": "router",
                                 "display_name": (
-                                    f"Router → {Cfg.local_model}/{Cfg.haiku_model}/"
-                                    f"{Cfg.sonnet_model}/{Cfg.opus_model}/{Cfg.fable_model}"
+                                    f"Router → {Cfg.local_model}/{Cfg.reason_model}/"
+                                    f"{Cfg.haiku_model}/{Cfg.sonnet_model}/"
+                                    f"{Cfg.opus_model}/{Cfg.fable_model}"
                                 ),
                             },
                             {"id": Cfg.local_model, "object": "model", "owned_by": "ollama"},
+                            {"id": Cfg.reason_model, "object": "model", "owned_by": "ollama"},
                             {"id": Cfg.haiku_model, "object": "model", "owned_by": "anthropic"},
                             {"id": Cfg.sonnet_model, "object": "model", "owned_by": "anthropic"},
                             {"id": Cfg.opus_model, "object": "model", "owned_by": "anthropic"},
@@ -113,17 +124,20 @@ def make_handler_class(deps: HandlerDeps) -> type[BaseHTTPRequestHandler]:
                 )
 
             chain = cascade_from(route) if Cfg.cascade else [route]
-            # If no cloud auth, hosted steps collapse to local.
+            # If no cloud auth, hosted steps collapse to a local lane.
             if not deps.auth.cloud_auth_ready(headers):
-                chain = ["local"]
-                if Cfg.log_routes and route != "local":
-                    sys.stderr.write("[llm-router] cascade→local reason=cloud-auth-missing\n")
+                fallback = local_fallback_lane(route)
+                chain = cascade_from(fallback) if Cfg.cascade else [fallback]
+                if Cfg.log_routes and route not in LOCAL_LANES:
+                    sys.stderr.write(
+                        f"[llm-router] cascade→{fallback} reason=cloud-auth-missing\n"
+                    )
 
             last_error: bytes | None = None
             last_status = 502
             for i, lane in enumerate(chain):
-                if lane == "local":
-                    payload = rewrite_for_local(data)
+                if lane in LOCAL_LANES:
+                    payload = rewrite_for_local(data, lane)
                     upstream = Cfg.local_upstream
                     auth = deps.auth.auth_headers_local(headers)
                 else:
@@ -143,13 +157,20 @@ def make_handler_class(deps: HandlerDeps) -> type[BaseHTTPRequestHandler]:
                         f"[llm-router] try lane={lane} model={payload.get('model')} "
                         f"effort={eff} thinking={th} upstream={upstream}\n"
                     )
-                status, body, content_type, exc = deps.upstream.exchange(
-                    upstream,
-                    self.path,
-                    payload,
-                    auth,
-                    {k.lower(): v for k, v in self.headers.items()},
-                )
+                unloader = deps.reason_unloader if lane == "reason" else None
+                if unloader is not None:
+                    unloader.hold(payload["model"])
+                try:
+                    status, body, content_type, exc = deps.upstream.exchange(
+                        upstream,
+                        self.path,
+                        payload,
+                        auth,
+                        {k.lower(): v for k, v in self.headers.items()},
+                    )
+                finally:
+                    if unloader is not None:
+                        unloader.release(payload["model"])
                 if exc is not None:
                     last_error = json.dumps(
                         {

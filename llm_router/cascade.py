@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 from llm_router.config import Cfg
-from llm_router.models import LANE_ORDER
+from llm_router.models import LANE_ORDER, LOCAL_LANES
 
 
 def normalize_lane(value: str) -> str:
@@ -13,6 +13,9 @@ def normalize_lane(value: str) -> str:
         "cloud": "sonnet",
         "frontier": "sonnet",
         "cheap": "haiku",
+        "r1": "reason",
+        "deepseek": "reason",
+        "local-reason": "reason",
         "auto": "",
     }
     return aliases.get(v, v)
@@ -21,6 +24,7 @@ def normalize_lane(value: str) -> str:
 def model_for_lane(lane: str) -> str:
     return {
         "local": Cfg.local_model,
+        "reason": Cfg.reason_model,
         "haiku": Cfg.haiku_model,
         "sonnet": Cfg.sonnet_model,
         "opus": Cfg.opus_model,
@@ -52,6 +56,17 @@ def cascade_from(lane: str) -> list[str]:
             continue
         out.append(candidate)
     return out or ["local"]
+
+
+def local_fallback_lane(lane: str) -> str:
+    """Local lane to use when hosted Claude is unavailable.
+
+    Hard prompts (sonnet and above) go to the reason lane; haiku work to qwen-fast.
+    """
+    lane = normalize_lane(lane) or "local"
+    if lane in LOCAL_LANES:
+        return lane
+    return "local" if lane == "haiku" else "reason"
 
 
 def should_failover_status(status: int, body: bytes) -> bool:

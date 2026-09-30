@@ -15,6 +15,8 @@ class Cfg:
     local_upstream = os.environ.get("OLLAMA_UPSTREAM", "http://127.0.0.1:11434").rstrip("/")
     cloud_upstream = os.environ.get("ANTHROPIC_UPSTREAM", "https://api.anthropic.com").rstrip("/")
     local_model = os.environ.get("ROUTER_LOCAL_MODEL", "qwen-fast")
+    # Local reasoning lane (DeepSeek-R1 14B) between qwen-fast and Haiku.
+    reason_model = os.environ.get("ROUTER_REASON_MODEL", "deepseek-reason")
     haiku_model = os.environ.get(
         "ROUTER_HAIKU_MODEL",
         os.environ.get("ROUTER_CHEAP_MODEL", "claude-haiku-4-5"),
@@ -55,3 +57,8 @@ class Cfg:
     # Ollama think for the local chat lane: auto (default) | on | off
     # 14B does not need the old 27B "force think off" workaround; auto leaves model default.
     local_think = os.environ.get("ROUTER_LOCAL_THINK", "auto").strip().lower()
+    # Ollama think for the reason lane: auto (default, R1 always reasons) | on | off
+    reason_think = os.environ.get("ROUTER_REASON_THINK", "auto").strip().lower()
+    # Unload the reason model after this many idle seconds (OLLAMA_KEEP_ALIVE=-1
+    # would otherwise pin both 14Bs). <= 0 keeps it resident.
+    reason_idle_unload = float(os.environ.get("ROUTER_REASON_IDLE_UNLOAD", "600"))

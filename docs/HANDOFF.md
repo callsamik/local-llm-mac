@@ -11,7 +11,8 @@ Do **not** reopen OmniRoute / multiprovider-llm unless the user asks.
 
 ## Current decision
 
-**Auto ladder:** `local → haiku → sonnet` (+ effort/thinking).  
+**Auto ladder:** `local → reason → haiku → sonnet` (+ effort/thinking).  
+**Reason lane (2026-09-30):** local DeepSeek-R1 14B (`deepseek-reason`) for algorithms / maths / logic prompts, and for hard prompts when Claude is unavailable or rate-limited. Unloaded after 10 min idle (`ROUTER_REASON_IDLE_UNLOAD`).  
 **Opus / Fable:** off by default. Turn on with config flags so only matching hard categories can use them.  
 **Local LLM scores:** when heuristics are uncertain/conflicting/borderline (`ROUTER_LLM_CLASSIFY=auto`).  
 **Versions:** env-pinned; cascade on errors.
@@ -48,9 +49,9 @@ Feature-pipeline Plan→Build→Clean→Audit · OmniRoute · research-doc updat
 
 ```
 cmux → claude-routed → llm-router :11437
-  auto: local | haiku | sonnet (+ effort/thinking)
+  auto: local | reason | haiku | sonnet (+ effort/thinking)
   optional: opus | fable when ROUTER_ENABLE_* =1
-  cascade ↓ → local last
+  cascade ↓ → reason → local last
 ```
 
 Claude Code OAuth preferred; no permanent `ANTHROPIC_BASE_URL` in shell rc.

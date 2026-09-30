@@ -48,6 +48,7 @@ def needs_llm_score(
                 "hard-phrase:",
                 "medium-phrase:",
                 "easy-phrase:",
+                "reason:",
                 "opus-hard:",
                 "fable-hard:",
                 "stack:",
@@ -82,7 +83,7 @@ def _parse_llm_score_payload(content: str) -> dict[str, Any] | None:
     # Fallback: bare lane word (+ optional score/effort tokens).
     lower = text.lower()
     lane = None
-    for name in ("sonnet", "haiku", "local", "frontier", "cheap", "opus", "fable"):
+    for name in ("sonnet", "haiku", "local", "reason", "frontier", "cheap", "opus", "fable"):
         if re.search(rf"\b{name}\b", lower):
             lane = {"frontier": "sonnet", "cheap": "haiku"}.get(name, name)
             break
@@ -110,9 +111,11 @@ class OllamaLlmScorer:
     def score_route(self, user_text: str) -> dict[str, Any] | None:
         if Cfg.llm_classify in {"0", "never", "off", "false", "no"}:
             return None
-        lanes = ["local", "haiku", "sonnet"]
+        lanes = ["local", "reason", "haiku", "sonnet"]
         rules = [
             "- lane local: lookup/rename/typo/explain (score <= 0, effort null)",
+            "- lane reason: self-contained reasoning — algorithms, complexity, maths, logic, "
+            "proofs; no code changes (score 1, effort null)",
             "- lane haiku: normal implement/fix/test/refactor (score 1, effort low)",
             "- lane sonnet: harder multi-file bugs / CI flakes (score 2-3, effort medium/high)",
         ]

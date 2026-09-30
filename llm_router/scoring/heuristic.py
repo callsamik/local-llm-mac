@@ -16,6 +16,7 @@ from llm_router.catalog import (
     OPUS_HARD_PHRASES,
     OPT_IN_FABLE,
     OPT_IN_OPUS,
+    REASON_PATTERNS,
 )
 from llm_router.models import RouteDecision
 from llm_router.text import normalize_prompt, phrase_hits, structural_signals
@@ -76,6 +77,12 @@ class HeuristicScorer:
             score += 1
             reasons.extend(medium_phrases)
 
+        reason_hit = False
+        for pat in REASON_PATTERNS:
+            if re.search(pat, lower, re.I):
+                reason_hit = True
+                reasons.append(f"reason:{pat}")
+
         easy_phrases = phrase_hits(norm, EASY_PHRASES, "easy-phrase")
         if easy_phrases:
             easy_hits += len(easy_phrases)
@@ -133,13 +140,17 @@ class HeuristicScorer:
         if opt_fable:
             reasons.extend(opt_fable)
 
-        # Base auto ladder: local / haiku / sonnet. Opus/fable applied later via gates.
+        # Base auto ladder: local / reason / haiku / sonnet. Opus/fable applied later via gates.
         if hard_hit:
             lane = "sonnet"
             score = max(score, 2)
             confident = True
         elif medium_hit:
             lane = "haiku"
+            score = max(score, 1)
+            confident = True
+        elif reason_hit:
+            lane = "reason"
             score = max(score, 1)
             confident = True
         elif easy_hits > 0 and score <= 0:
@@ -160,6 +171,7 @@ class HeuristicScorer:
             "confident": confident,
             "hard_hit": hard_hit,
             "medium_hit": medium_hit,
+            "reason_hit": reason_hit,
             "easy_hits": easy_hits,
             "reasons": reasons,
             "opus_hard": bool(opus_hard),
